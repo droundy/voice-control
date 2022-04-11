@@ -1,0 +1,11 @@
+[package]
+name = "voice-control"
+version = "0.1.0"
+edition = "2021"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+
+coqui-stt = { version = "0.2.3", path = "../coqui-stt" }
+cpal = "0.13.5"
