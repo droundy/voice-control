@@ -130,27 +130,27 @@ pub(crate) fn char_to_keystrokes(c: char) -> Option<Keystrokes> {
         '`' => Some(Keystrokes::Press(Key::BackQuote)),
         '~' => Some(Keystrokes::Shift(Key::BackQuote)),
 
-        '1' => Some(Keystrokes::Press(Key::Kp1)),
-        '2' => Some(Keystrokes::Press(Key::Kp2)),
-        '3' => Some(Keystrokes::Press(Key::Kp3)),
-        '4' => Some(Keystrokes::Press(Key::Kp4)),
-        '5' => Some(Keystrokes::Press(Key::Kp5)),
-        '6' => Some(Keystrokes::Press(Key::Kp6)),
-        '7' => Some(Keystrokes::Press(Key::Kp7)),
-        '8' => Some(Keystrokes::Press(Key::Kp8)),
-        '9' => Some(Keystrokes::Press(Key::Kp9)),
-        '0' => Some(Keystrokes::Press(Key::Kp0)),
+        '1' => Some(Keystrokes::Press(Key::Num1)),
+        '2' => Some(Keystrokes::Press(Key::Num2)),
+        '3' => Some(Keystrokes::Press(Key::Num3)),
+        '4' => Some(Keystrokes::Press(Key::Num4)),
+        '5' => Some(Keystrokes::Press(Key::Num5)),
+        '6' => Some(Keystrokes::Press(Key::Num6)),
+        '7' => Some(Keystrokes::Press(Key::Num7)),
+        '8' => Some(Keystrokes::Press(Key::Num8)),
+        '9' => Some(Keystrokes::Press(Key::Num9)),
+        '0' => Some(Keystrokes::Press(Key::Num0)),
 
-        '!' => Some(Keystrokes::Shift(Key::Kp1)),
-        '@' => Some(Keystrokes::Shift(Key::Kp2)),
-        '#' => Some(Keystrokes::Shift(Key::Kp3)),
-        '$' => Some(Keystrokes::Shift(Key::Kp4)),
-        '%' => Some(Keystrokes::Shift(Key::Kp5)),
-        '^' => Some(Keystrokes::Shift(Key::Kp6)),
-        '&' => Some(Keystrokes::Shift(Key::Kp7)),
-        '*' => Some(Keystrokes::Shift(Key::Kp8)),
-        '(' => Some(Keystrokes::Shift(Key::Kp9)),
-        ')' => Some(Keystrokes::Shift(Key::Kp0)),
+        '!' => Some(Keystrokes::Shift(Key::Num1)),
+        '@' => Some(Keystrokes::Shift(Key::Num2)),
+        '#' => Some(Keystrokes::Shift(Key::Num3)),
+        '$' => Some(Keystrokes::Shift(Key::Num4)),
+        '%' => Some(Keystrokes::Shift(Key::Num5)),
+        '^' => Some(Keystrokes::Shift(Key::Num6)),
+        '&' => Some(Keystrokes::Shift(Key::Num7)),
+        '*' => Some(Keystrokes::Shift(Key::Num8)),
+        '(' => Some(Keystrokes::Shift(Key::Num9)),
+        ')' => Some(Keystrokes::Shift(Key::Num0)),
 
         'a' => Some(Keystrokes::Press(Key::KeyA)),
         'b' => Some(Keystrokes::Press(Key::KeyB)),
@@ -281,17 +281,17 @@ impl KeyMapping {
         km.add("capital yankee", Keystrokes::Shift(Key::KeyY));
         km.add("capital zulu", Keystrokes::Shift(Key::KeyZ));
 
-        km.add("zero", Keystrokes::Press(Key::Kp0));
-        km.add("one", Keystrokes::Press(Key::Kp1));
-        km.add("two", Keystrokes::Press(Key::Kp2));
-        km.add("three", Keystrokes::Press(Key::Kp3));
-        km.add("four", Keystrokes::Press(Key::Kp4));
-        km.add("five", Keystrokes::Press(Key::Kp5));
-        km.add("six", Keystrokes::Press(Key::Kp6));
-        km.add("seven", Keystrokes::Press(Key::Kp7));
-        km.add("eight", Keystrokes::Press(Key::Kp8));
-        km.add("nine", Keystrokes::Press(Key::Kp9));
-        km.add("niner", Keystrokes::Press(Key::Kp9));
+        km.add("zero", Keystrokes::Press(Key::Num0));
+        km.add("one", Keystrokes::Press(Key::Num1));
+        km.add("two", Keystrokes::Press(Key::Num2));
+        km.add("three", Keystrokes::Press(Key::Num3));
+        km.add("four", Keystrokes::Press(Key::Num4));
+        km.add("five", Keystrokes::Press(Key::Num5));
+        km.add("six", Keystrokes::Press(Key::Num6));
+        km.add("seven", Keystrokes::Press(Key::Num7));
+        km.add("eight", Keystrokes::Press(Key::Num8));
+        km.add("nine", Keystrokes::Press(Key::Num9));
+        km.add("niner", Keystrokes::Press(Key::Num9));
 
         km.add("space", Keystrokes::Press(Key::Space));
         km
@@ -355,16 +355,16 @@ impl KeyMapping {
         km.add("Y", Keystrokes::Shift(Key::KeyY));
         km.add("Z", Keystrokes::Shift(Key::KeyZ));
 
-        km.add("0", Keystrokes::Press(Key::Kp0));
-        km.add("1", Keystrokes::Press(Key::Kp1));
-        km.add("2", Keystrokes::Press(Key::Kp2));
-        km.add("3", Keystrokes::Press(Key::Kp3));
-        km.add("4", Keystrokes::Press(Key::Kp4));
-        km.add("5", Keystrokes::Press(Key::Kp5));
-        km.add("6", Keystrokes::Press(Key::Kp6));
-        km.add("7", Keystrokes::Press(Key::Kp7));
-        km.add("8", Keystrokes::Press(Key::Kp8));
-        km.add("9", Keystrokes::Press(Key::Kp9));
+        km.add("0", Keystrokes::Press(Key::Num0));
+        km.add("1", Keystrokes::Press(Key::Num1));
+        km.add("2", Keystrokes::Press(Key::Num2));
+        km.add("3", Keystrokes::Press(Key::Num3));
+        km.add("4", Keystrokes::Press(Key::Num4));
+        km.add("5", Keystrokes::Press(Key::Num5));
+        km.add("6", Keystrokes::Press(Key::Num6));
+        km.add("7", Keystrokes::Press(Key::Num7));
+        km.add("8", Keystrokes::Press(Key::Num8));
+        km.add("9", Keystrokes::Press(Key::Num9));
         km
     }
     pub fn roundy() -> Self {
@@ -388,22 +388,22 @@ impl KeyMapping {
         km.add("langle", Keystrokes::Shift(Key::Comma));
 
 
-        km.add("right parenthesis", Keystrokes::Shift(Key::Kp0));
-        km.add("right parentheses", Keystrokes::Shift(Key::Kp0));
-        km.add("right parens", Keystrokes::Shift(Key::Kp0));
-        km.add("exclamation point", Keystrokes::Shift(Key::Kp1));
-        km.add("at symbol", Keystrokes::Shift(Key::Kp2));
-        km.add("pound", Keystrokes::Shift(Key::Kp3));
-        km.add("dollar sign", Keystrokes::Shift(Key::Kp4));
-        km.add("percent", Keystrokes::Shift(Key::Kp5));
-        km.add("caret", Keystrokes::Shift(Key::Kp6));
-        km.add("carrot", Keystrokes::Shift(Key::Kp6));
-        km.add("ampersand", Keystrokes::Shift(Key::Kp7));
-        km.add("asterisk", Keystrokes::Shift(Key::Kp8));
-        km.add("star", Keystrokes::Shift(Key::Kp8));
-        km.add("left parenthesis", Keystrokes::Shift(Key::Kp9));
-        km.add("left parentheses", Keystrokes::Shift(Key::Kp9));
-        km.add("left parens", Keystrokes::Shift(Key::Kp9));
+        km.add("right parenthesis", Keystrokes::Shift(Key::Num0));
+        km.add("right parentheses", Keystrokes::Shift(Key::Num0));
+        km.add("right parens", Keystrokes::Shift(Key::Num0));
+        km.add("exclamation point", Keystrokes::Shift(Key::Num1));
+        km.add("at symbol", Keystrokes::Shift(Key::Num2));
+        km.add("pound", Keystrokes::Shift(Key::Num3));
+        km.add("dollar sign", Keystrokes::Shift(Key::Num4));
+        km.add("percent", Keystrokes::Shift(Key::Num5));
+        km.add("caret", Keystrokes::Shift(Key::Num6));
+        km.add("carrot", Keystrokes::Shift(Key::Num6));
+        km.add("ampersand", Keystrokes::Shift(Key::Num7));
+        km.add("asterisk", Keystrokes::Shift(Key::Num8));
+        km.add("star", Keystrokes::Shift(Key::Num8));
+        km.add("left parenthesis", Keystrokes::Shift(Key::Num9));
+        km.add("left parentheses", Keystrokes::Shift(Key::Num9));
+        km.add("left parens", Keystrokes::Shift(Key::Num9));
 
         km.add("shift", Keystrokes::Down(Key::ShiftLeft));
         km.add("shift", Keystrokes::Down(Key::ShiftRight));
