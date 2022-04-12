@@ -378,6 +378,15 @@ impl KeyMapping {
         km.add("double quote", Keystrokes::Shift(Key::Quote));
         km.add("back quote", Keystrokes::Press(Key::BackQuote));
         km.add("tilde", Keystrokes::Shift(Key::BackQuote));
+        km.add("period", Keystrokes::Press(Key::Dot));
+        km.add("comma", Keystrokes::Press(Key::Comma));
+
+        km.add("greater than", Keystrokes::Shift(Key::Dot));
+        km.add("wrangle", Keystrokes::Shift(Key::Dot));
+
+        km.add("less than", Keystrokes::Shift(Key::Comma));
+        km.add("langle", Keystrokes::Shift(Key::Comma));
+
 
         km.add("right parenthesis", Keystrokes::Shift(Key::Kp0));
         km.add("right parentheses", Keystrokes::Shift(Key::Kp0));
