@@ -6,6 +6,8 @@ use crate::parser::Parser;
 
 pub mod parser;
 
+pub mod keys;
+
 pub fn transcription() {
     let mut model = coqui_stt::Model::new("english/model.tflite").expect("unable to create model");
     model

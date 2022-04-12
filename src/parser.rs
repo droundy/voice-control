@@ -100,13 +100,16 @@ impl Parser for AnyWord {
 }
 
 #[derive(Clone)]
-pub struct PossibleTokens(&'static [&'static str]);
-impl Parser for PossibleTokens {
+pub struct Literals {
+    tokens: &'static [&'static str]
+}
+impl FancyParser for Literals {}
+impl Parser for Literals {
     type Output = &'static str;
 
     fn parse<'a>(&self, input: Tokens<'a>) -> Option<(Self::Output, Tokens<'a>)> {
         if let Some((first, rest)) = input.split_first() {
-            for t in self.0.iter() {
+            for t in self.tokens.iter() {
                 if *t == *first {
                     return Some((*t, rest));
                 }
@@ -116,13 +119,17 @@ impl Parser for PossibleTokens {
     }
 
     fn possible_starts(&self) -> Vec<&'static str> {
-        self.0.iter().map(|s| *s).collect()
+        self.tokens.iter().map(|s| *s).collect()
     }
 }
-impl FancyParser for PossibleTokens {}
+impl Literals {
+    fn new(tokens: &'static [&'static str]) -> Self {
+        Literals { tokens }
+    }
+}
 
 #[derive(Clone)]
-pub struct Sequence(Vec<PossibleTokens>);
+pub struct Sequence(Vec<Literals>);
 
 impl FancyParser for Sequence {}
 impl Parser for Sequence {
@@ -367,6 +374,7 @@ impl Action {
         match self {
             Action::Keys(s) => {
                 println!("typing: {s}");
+                crate::keys::send_string(&s);
             }
             Action::Function(f) => {
                 f();
@@ -378,8 +386,8 @@ impl Action {
 pub fn my_rules() -> impl Parser<Output = Action> + Send {
     use std::sync::atomic::{AtomicBool, Ordering};
     static AM_LISTENING: AtomicBool = AtomicBool::new(false);
-    let listening = PossibleTokens(&["start", "stop"]).and_then(
-        PossibleTokens(&["listening"]),
+    let listening = Literals::new(&["start", "stop"]).and_then(
+        Literals::new(&["listening"]),
         Box::new(|verb, _| {
             let starting = verb == "start";
             Action::function(move || {
@@ -389,14 +397,15 @@ pub fn my_rules() -> impl Parser<Output = Action> + Send {
         }),
     );
 
-    let letters = PossibleTokens(&[
+    let letters = Literals::new(&[
         "alpha", "alfa", "bravo", "brodo", "charlie", "charley", "delta", "echo", "foxtrot",
         "golf", "hotel", "india", "juliett", "kilo", "lima", "mike", "november", "oscar", "papa",
         "quebec", "romeo", "sierra", "tango", "uniform", "victor", "whiskey", "x-ray", "yankee",
         "zulu", "zero", "one", "two", "three", "four", "five", "six", "seven", "eight", "nine",
         "niner",
+        // Special characters
     ]);
-    let spell = PossibleTokens(&["spell"]).with_repeats(
+    let spell = Literals::new(&["spell"]).with_repeats(
         letters,
         Box::new(|_, y| {
             let mut out = String::new();
@@ -420,7 +429,7 @@ pub fn my_rules() -> impl Parser<Output = Action> + Send {
         }),
     );
 
-    let dication = PossibleTokens(&["dictation"]).with_repeats(
+    let dication = Literals::new(&["dictation"]).with_repeats(
         AnyWord,
         Box::new(|_, y| {
             if y.len() > 0 {
@@ -454,7 +463,7 @@ pub fn my_rules() -> impl Parser<Output = Action> + Send {
 
 #[test]
 fn test_parser() {
-    let greeting = PossibleTokens(&["hello", "hi"]);
+    let greeting = Literals::new(&["hello", "hi"]);
     assert_eq!(
         Some(("hello", &["world"][..])),
         greeting.parse(&["hello", "world"])
