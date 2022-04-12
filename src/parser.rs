@@ -1,4 +1,4 @@
-use crate::keys::{Keystrokes, char_to_keystrokes};
+use crate::keys::{char_to_keystrokes, Keystrokes};
 
 type Tokens<'a> = &'a [&'a str];
 
@@ -404,6 +404,15 @@ pub fn my_rules() -> impl Parser<Output = Action> + Send {
         }),
     );
 
+    let navigation = crate::keys::KeyMapping::navigation();
+    let navigation = Literals::from(&navigation).map(Box::new(move |y: Vec<&'static str>| {
+        let mut out = Vec::new();
+        for c in y {
+            out.push(navigation[&c[..]]);
+        }
+        Action::Keys(out)
+    }));
+
     let dication = Literals::new(&["dictation"]).with_repeats(
         AnyWord,
         Box::new(move |_, y| {
@@ -432,6 +441,7 @@ pub fn my_rules() -> impl Parser<Output = Action> + Send {
     let mut rules_if_listening = RuleSet::new();
     rules_if_listening.add(spell);
     rules_if_listening.add(dication);
+    rules_if_listening.add(navigation);
     rules_if_listening.finish_repeats();
 
     rules.add(Unless {

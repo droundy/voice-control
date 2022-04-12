@@ -367,6 +367,47 @@ impl KeyMapping {
         km.add("9", Keystrokes::Press(Key::Num9));
         km
     }
+    pub fn navigation() -> Self {
+        let mut km = KeyMapping {
+            key_to_str: HashMap::new(),
+            str_to_key: HashMap::new(),
+        };
+
+        km.add("shift", Keystrokes::Down(Key::ShiftLeft));
+        km.add("shift", Keystrokes::Down(Key::ShiftRight));
+        km.add("shift", Keystrokes::Press(Key::ShiftLeft));
+        km.add("shift", Keystrokes::Press(Key::ShiftRight));
+
+        km.add("control", Keystrokes::Down(Key::ControlLeft));
+        km.add("control", Keystrokes::Down(Key::ControlRight));
+        km.add("control", Keystrokes::Press(Key::ControlLeft));
+        km.add("control", Keystrokes::Press(Key::ControlRight));
+
+        km.add("alt", Keystrokes::Down(Key::Alt));
+        km.add("alt", Keystrokes::Press(Key::Alt));
+
+        km.add("meta", Keystrokes::Down(Key::MetaLeft));
+        km.add("meta", Keystrokes::Down(Key::MetaRight));
+        km.add("meta", Keystrokes::Press(Key::MetaLeft));
+        km.add("meta", Keystrokes::Press(Key::MetaRight));
+
+        km.add("backspace", Keystrokes::Press(Key::Backspace));
+        km.add("tab", Keystrokes::Press(Key::Tab));
+        km.add("tad", Keystrokes::Press(Key::Tab));
+        km.add("menu key", Keystrokes::Press(Key::Unknown(135)));
+
+        km.add("right", Keystrokes::Press(Key::RightArrow));
+        km.add("left", Keystrokes::Press(Key::LeftArrow));
+        km.add("up", Keystrokes::Press(Key::UpArrow));
+        km.add("down", Keystrokes::Press(Key::DownArrow));
+
+        km.add("page up", Keystrokes::Press(Key::PageUp));
+        km.add("page down", Keystrokes::Press(Key::PageDown));
+
+        km.add("home key", Keystrokes::Press(Key::Home));
+        km.add("end key", Keystrokes::Press(Key::End));
+        km
+    }
     pub fn roundy() -> Self {
         let mut km = Self::nato();
         km.add("minus", Keystrokes::Press(Key::Minus));
@@ -380,13 +421,14 @@ impl KeyMapping {
         km.add("tilde", Keystrokes::Shift(Key::BackQuote));
         km.add("period", Keystrokes::Press(Key::Dot));
         km.add("comma", Keystrokes::Press(Key::Comma));
+        km.add("slash", Keystrokes::Press(Key::Slash));
+        km.add("question mark", Keystrokes::Shift(Key::Slash));
 
         km.add("greater than", Keystrokes::Shift(Key::Dot));
         km.add("wrangle", Keystrokes::Shift(Key::Dot));
 
         km.add("less than", Keystrokes::Shift(Key::Comma));
         km.add("langle", Keystrokes::Shift(Key::Comma));
-
 
         km.add("right parenthesis", Keystrokes::Shift(Key::Num0));
         km.add("right parentheses", Keystrokes::Shift(Key::Num0));
