@@ -56,6 +56,8 @@ pub fn send_string(s: &str) {
                 '⏎' | '\n' | '↵' => send_key(Key::Return),
                 '▤' | '☰' | '𝌆' => send_key(Key::Unknown(135)),
 
+                ' ' => send_key(Key::Space),
+
                 '[' => send_key(Key::LeftBracket),
                 ']' => send_key(Key::RightBracket),
                 '{' => send_upper(Key::LeftBracket),

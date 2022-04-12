@@ -141,12 +141,13 @@ pub fn voice_control() {
         .expect("No input at desired sample rate")
         .with_sample_rate(desired_rate);
     let mut config: StreamConfig = supported_config.into();
-    config.buffer_size = cpal::BufferSize::Fixed(VAD_SAMPLES);
+    config.buffer_size = cpal::BufferSize::Fixed(10 * VAD_SAMPLES);
 
     let mut have_sound = false;
     let new_stream =
         move || coqui_stt::Stream::from_model(model.clone()).expect("unable to create stream?!");
     let mut stream = new_stream();
+    let mut collected_data: Vec<i16> = Vec::new();
 
     let rules = Arc::new(std::sync::Mutex::new(parser::my_rules()));
     // let streaming_copy = streaming.clone();
@@ -154,16 +155,21 @@ pub fn voice_control() {
         .build_input_stream(
             &config,
             move |data: &[i16], _: &cpal::InputCallbackInfo| {
-                if vad
-                    .lock()
-                    .unwrap()
-                    .is_voice_segment(data)
-                    .expect("wrong size data sample")
+                collected_data.extend(data);
+                if collected_data.len() < VAD_SAMPLES as usize {
+                    return;
+                }
+                let mut vad = vad.lock().unwrap();
+                if collected_data
+                    .chunks_exact(VAD_SAMPLES as usize)
+                    .any(|data| vad.is_voice_segment(data).expect("wrong size data sample"))
                 {
-                    stream.feed_audio(data);
+                    stream.feed_audio(&collected_data);
                     have_sound = true;
                 } else {
                     if have_sound {
+                        stream.feed_audio(&collected_data);
+                        println!("Got some audio to process...");
                         let x = std::mem::replace(&mut stream, new_stream())
                             .finish_stream_with_metadata(32)
                             .unwrap()
@@ -182,7 +188,7 @@ pub fn voice_control() {
                                 words = rest;
                                 goodness += 1;
                             }
-                            // println!("{goodness:2}: {original_words:?}");
+                            println!("{goodness:2}: {original_words:?}");
                             if goodness > best {
                                 best = goodness;
                                 best_vec = original_words.iter().map(|w| w.to_string()).collect();
@@ -198,6 +204,7 @@ pub fn voice_control() {
                     }
                     have_sound = false;
                 }
+                collected_data.clear();
             },
             move |err| {
                 // react to errors here.

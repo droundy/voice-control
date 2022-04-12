@@ -109,9 +109,11 @@ impl Parser for Literals {
 
     fn parse<'a>(&self, input: Tokens<'a>) -> Option<(Self::Output, Tokens<'a>)> {
         for t in self.tokens.iter() {
-            let (first, rest) = input.split_at(t.len());
-            if t == first {
-                return Some((t.clone(), rest));
+            if t.len() <= input.len() {
+                let (first, rest) = input.split_at(t.len());
+                if t == first {
+                    return Some((t.clone(), rest));
+                }
             }
         }
         None
@@ -388,8 +390,7 @@ pub fn my_rules() -> impl Parser<Output = Action> + Send {
         "fox trot", "golf", "hotel", "india", "juliett", "kilo", "lima", "mike", "november",
         "oscar", "papa", "quebec", "romeo", "sierra", "tango", "uniform", "victor", "whiskey",
         "x-ray", "yankee", "zulu", "zero", "one", "two", "three", "four", "five", "six", "seven",
-        "eight", "nine", "niner",
-        // Special characters
+        "eight", "nine", "niner", // Special characters
         "shift",
     ]);
     let spell = Literals::new(&["spell"]).with_repeats(
