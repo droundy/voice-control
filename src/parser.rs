@@ -1,3 +1,5 @@
+use crate::keys::{Keystrokes, char_to_keystrokes};
+
 type Tokens<'a> = &'a [&'a str];
 
 pub trait Parser: 'static + Send {
@@ -123,17 +125,31 @@ impl Parser for Literals {
         self.tokens.iter().map(|s| s[0]).collect()
     }
 }
+
+pub(crate) fn split_str(s: &'static str) -> Vec<&'static str> {
+    let mut toks = Vec::new();
+    for w in s.split_whitespace() {
+        if w.len() > 0 {
+            toks.push(w);
+        }
+    }
+    toks
+}
+
 impl Literals {
     fn new(strings: &'static [&'static str]) -> Self {
         let mut tokens = Vec::new();
         for s in strings {
-            let mut toks = Vec::new();
-            for w in s.split_whitespace() {
-                if w.len() > 0 {
-                    toks.push(w);
-                }
-            }
-            tokens.push(toks);
+            tokens.push(split_str(s));
+        }
+        Literals { tokens }
+    }
+}
+impl From<&crate::keys::KeyMapping> for Literals {
+    fn from(m: &crate::keys::KeyMapping) -> Self {
+        let mut tokens = Vec::new();
+        for s in m.all_starts() {
+            tokens.push(split_str(s));
         }
         Literals { tokens }
     }
@@ -338,18 +354,9 @@ impl<O: 'static> RuleSet<O> {
     }
 }
 
-pub fn words_to_action(words: &[&'static str]) -> Action {
-    let mut out = String::new();
-    for w in words.iter() {
-        out.push_str(*w);
-        out.push(' ')
-    }
-    Action::Keys(out)
-}
-
 // #[derive(Debug, PartialEq, Eq)]
 pub enum Action {
-    Keys(String),
+    Keys(Vec<Keystrokes>),
     // KeyPress,
     // Sequence(Vec<Action>),
     Function(Box<dyn Fn()>),
@@ -361,8 +368,7 @@ impl Action {
     pub fn run(self) {
         match self {
             Action::Keys(s) => {
-                println!("typing: {s}");
-                crate::keys::send_string(&s);
+                crate::keys::send_keystrokes(&s);
             }
             Action::Function(f) => {
                 f();
@@ -385,35 +391,14 @@ pub fn my_rules() -> impl Parser<Output = Action> + Send {
         }),
     );
 
-    let letters = Literals::new(&[
-        "alpha", "alfa", "bravo", "brodo", "charlie", "charley", "delta", "echo", "foxtrot",
-        "fox trot", "golf", "hotel", "india", "juliett", "kilo", "lima", "mike", "november",
-        "oscar", "papa", "quebec", "romeo", "sierra", "tango", "uniform", "victor", "whiskey",
-        "x-ray", "yankee", "zulu", "zero", "one", "two", "three", "four", "five", "six", "seven",
-        "eight", "nine", "niner", // Special characters
-        "shift",
-    ]);
+    let keymapping = crate::keys::KeyMapping::roundy();
+    let letters = Literals::from(&keymapping);
     let spell = Literals::new(&["spell"]).with_repeats(
         letters,
-        Box::new(|_, y: Vec<Vec<&'static str>>| {
-            let mut out = String::new();
+        Box::new(move |_, y: Vec<Vec<&'static str>>| {
+            let mut out = Vec::new();
             for c in y {
-                out.push(match &c[..] {
-                    ["shift"] => '⇧',
-                    ["control"] => '🄲',
-
-                    ["zero"] => '0',
-                    ["one"] => '1',
-                    ["two"] => '2',
-                    ["three"] => '3',
-                    ["four"] => '4',
-                    ["five"] => '5',
-                    ["six"] => '6',
-                    ["seven"] => '7',
-                    ["eight"] => '8',
-                    ["nine"] | ["niner"] => '9',
-                    _ => c[0].chars().next().unwrap(),
-                });
+                out.push(keymapping[&c[..]]);
             }
             Action::Keys(out)
         }),
@@ -421,16 +406,23 @@ pub fn my_rules() -> impl Parser<Output = Action> + Send {
 
     let dication = Literals::new(&["dictation"]).with_repeats(
         AnyWord,
-        Box::new(|_, y| {
+        Box::new(move |_, y| {
+            use rdev::Key;
             if y.len() > 0 {
-                let mut out = y[0].to_string();
-                for c in y[1..].iter() {
-                    out.push(' ');
-                    out.push_str(c);
+                let mut out = Vec::new();
+                for c in y[0].chars() {
+                    out.push(char_to_keystrokes(c).expect("bad char 1"));
+                }
+                y[0].to_string();
+                for s in y[1..].iter() {
+                    out.push(char_to_keystrokes(' ').expect("bad char 2"));
+                    for c in s.chars() {
+                        out.push(char_to_keystrokes(c).expect("bad char 3"));
+                    }
                 }
                 Action::Keys(out)
             } else {
-                Action::Keys("".to_string())
+                Action::Keys(Vec::new())
             }
         }),
     );

@@ -10,4 +10,4 @@ edition = "2021"
 coqui-stt = { version = "0.2.3", path = "../coqui-stt" }
 cpal = "0.13.5"
 webrtc-vad = { git="https://github.com/andreytkachenko/webrtc-vad" } # "0.4.0"
-rdev = "0.5.1"
+rdev = { git="https://github.com/TTWNO/rdev" } # "0.5.1"
