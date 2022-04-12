@@ -101,53 +101,39 @@ impl Parser for AnyWord {
 
 #[derive(Clone)]
 pub struct Literals {
-    tokens: &'static [&'static str]
+    tokens: Vec<Vec<&'static str>>,
 }
 impl FancyParser for Literals {}
 impl Parser for Literals {
-    type Output = &'static str;
+    type Output = Vec<&'static str>;
 
     fn parse<'a>(&self, input: Tokens<'a>) -> Option<(Self::Output, Tokens<'a>)> {
-        if let Some((first, rest)) = input.split_first() {
-            for t in self.tokens.iter() {
-                if *t == *first {
-                    return Some((*t, rest));
-                }
+        for t in self.tokens.iter() {
+            let (first, rest) = input.split_at(t.len());
+            if t == first {
+                return Some((t.clone(), rest));
             }
         }
         None
     }
 
     fn possible_starts(&self) -> Vec<&'static str> {
-        self.tokens.iter().map(|s| *s).collect()
+        self.tokens.iter().map(|s| s[0]).collect()
     }
 }
 impl Literals {
-    fn new(tokens: &'static [&'static str]) -> Self {
-        Literals { tokens }
-    }
-}
-
-#[derive(Clone)]
-pub struct Sequence(Vec<Literals>);
-
-impl FancyParser for Sequence {}
-impl Parser for Sequence {
-    type Output = Vec<&'static str>;
-
-    fn parse<'a>(&self, input: Tokens<'a>) -> Option<(Self::Output, Tokens<'a>)> {
-        let mut rest = input;
-        let mut value: Vec<&'static str> = Vec::new();
-        for t in self.0.iter() {
-            let (next, r) = t.parse(rest)?;
-            value.push(next);
-            rest = r;
+    fn new(strings: &'static [&'static str]) -> Self {
+        let mut tokens = Vec::new();
+        for s in strings {
+            let mut toks = Vec::new();
+            for w in s.split_whitespace() {
+                if w.len() > 0 {
+                    toks.push(w);
+                }
+            }
+            tokens.push(toks);
         }
-        Some((value, rest))
-    }
-
-    fn possible_starts(&self) -> Vec<&'static str> {
-        self.0[0].possible_starts()
+        Literals { tokens }
     }
 }
 
@@ -389,7 +375,7 @@ pub fn my_rules() -> impl Parser<Output = Action> + Send {
     let listening = Literals::new(&["start", "stop"]).and_then(
         Literals::new(&["listening"]),
         Box::new(|verb, _| {
-            let starting = verb == "start";
+            let starting = &verb == &["start"];
             Action::function(move || {
                 println!("{} listening", if starting { "start" } else { "stop" });
                 AM_LISTENING.store(starting, Ordering::Relaxed)
@@ -399,30 +385,33 @@ pub fn my_rules() -> impl Parser<Output = Action> + Send {
 
     let letters = Literals::new(&[
         "alpha", "alfa", "bravo", "brodo", "charlie", "charley", "delta", "echo", "foxtrot",
-        "golf", "hotel", "india", "juliett", "kilo", "lima", "mike", "november", "oscar", "papa",
-        "quebec", "romeo", "sierra", "tango", "uniform", "victor", "whiskey", "x-ray", "yankee",
-        "zulu", "zero", "one", "two", "three", "four", "five", "six", "seven", "eight", "nine",
-        "niner",
+        "fox trot", "golf", "hotel", "india", "juliett", "kilo", "lima", "mike", "november",
+        "oscar", "papa", "quebec", "romeo", "sierra", "tango", "uniform", "victor", "whiskey",
+        "x-ray", "yankee", "zulu", "zero", "one", "two", "three", "four", "five", "six", "seven",
+        "eight", "nine", "niner",
         // Special characters
+        "shift",
     ]);
     let spell = Literals::new(&["spell"]).with_repeats(
         letters,
-        Box::new(|_, y| {
+        Box::new(|_, y: Vec<Vec<&'static str>>| {
             let mut out = String::new();
             for c in y {
-                out.push(match c {
-                    "zero" => '0',
-                    "one" => '1',
-                    "two" => '2',
-                    "three" => '3',
-                    "four" => '4',
-                    "five" => '5',
-                    "six" => '6',
-                    "seven" => '7',
-                    "eight" => '8',
-                    "nine" => '9',
-                    "niner" => '9',
-                    _ => c.chars().next().unwrap(),
+                out.push(match &c[..] {
+                    ["shift"] => '⇧',
+                    ["control"] => '🄲',
+
+                    ["zero"] => '0',
+                    ["one"] => '1',
+                    ["two"] => '2',
+                    ["three"] => '3',
+                    ["four"] => '4',
+                    ["five"] => '5',
+                    ["six"] => '6',
+                    ["seven"] => '7',
+                    ["eight"] => '8',
+                    ["nine"] | ["niner"] => '9',
+                    _ => c[0].chars().next().unwrap(),
                 });
             }
             Action::Keys(out)
@@ -465,14 +454,14 @@ pub fn my_rules() -> impl Parser<Output = Action> + Send {
 fn test_parser() {
     let greeting = Literals::new(&["hello", "hi"]);
     assert_eq!(
-        Some(("hello", &["world"][..])),
+        Some((vec!["hello"], &["world"][..])),
         greeting.parse(&["hello", "world"])
     );
     assert_eq!(None, greeting.parse(&["great", "hello", "world"]));
     assert_eq!(
         Some(("hello".to_string(), &["world"][..])),
         greeting
-            .map(Box::new(|s: &'static str| s.to_string()))
+            .map(Box::new(|s: Vec<&'static str>| s[0].to_string()))
             .parse(&["hello", "world"])
     );
 
