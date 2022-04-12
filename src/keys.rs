@@ -292,6 +292,8 @@ impl KeyMapping {
         km.add("eight", Keystrokes::Press(Key::Kp8));
         km.add("nine", Keystrokes::Press(Key::Kp9));
         km.add("niner", Keystrokes::Press(Key::Kp9));
+
+        km.add("space", Keystrokes::Press(Key::Space));
         km
     }
     pub fn alphabet() -> Self {
@@ -397,6 +399,9 @@ impl KeyMapping {
 
         km.add("page up", Keystrokes::Press(Key::PageUp));
         km.add("page down", Keystrokes::Press(Key::PageDown));
+
+        km.add("home key", Keystrokes::Press(Key::Home));
+        km.add("end key", Keystrokes::Press(Key::End));
         km
     }
     pub fn add(&mut self, s: &'static str, k: Keystrokes) {

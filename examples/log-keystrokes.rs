@@ -58,7 +58,7 @@ fn main() {
                                 .copied()
                                 .filter(|&k| k != key)
                                 .collect();
-                            if waiting_to_lift.len() == 0 {
+                            if waiting_to_lift.len() == 0 && current_strokes.len() > 0 {
                                 for k in current_strokes.drain(..) {
                                     for s in &mapping[k][0] {
                                         print!("{} ", s);
