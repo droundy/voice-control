@@ -369,6 +369,33 @@ impl KeyMapping {
     }
     pub fn roundy() -> Self {
         let mut km = Self::nato();
+        km.add("minus", Keystrokes::Press(Key::Minus));
+        km.add("underscore", Keystrokes::Shift(Key::Minus));
+        km.add("plus", Keystrokes::Shift(Key::Equal));
+        km.add("equals", Keystrokes::Press(Key::Equal));
+        km.add("equal", Keystrokes::Press(Key::Equal));
+        km.add("single quote", Keystrokes::Press(Key::Quote));
+        km.add("double quote", Keystrokes::Shift(Key::Quote));
+        km.add("back quote", Keystrokes::Press(Key::BackQuote));
+        km.add("tilde", Keystrokes::Shift(Key::BackQuote));
+
+        km.add("right parenthesis", Keystrokes::Shift(Key::Kp0));
+        km.add("right parentheses", Keystrokes::Shift(Key::Kp0));
+        km.add("right parens", Keystrokes::Shift(Key::Kp0));
+        km.add("exclamation point", Keystrokes::Shift(Key::Kp1));
+        km.add("at symbol", Keystrokes::Shift(Key::Kp2));
+        km.add("pound", Keystrokes::Shift(Key::Kp3));
+        km.add("dollar sign", Keystrokes::Shift(Key::Kp4));
+        km.add("percent", Keystrokes::Shift(Key::Kp5));
+        km.add("caret", Keystrokes::Shift(Key::Kp6));
+        km.add("carrot", Keystrokes::Shift(Key::Kp6));
+        km.add("ampersand", Keystrokes::Shift(Key::Kp7));
+        km.add("asterisk", Keystrokes::Shift(Key::Kp8));
+        km.add("star", Keystrokes::Shift(Key::Kp8));
+        km.add("left parenthesis", Keystrokes::Shift(Key::Kp9));
+        km.add("left parentheses", Keystrokes::Shift(Key::Kp9));
+        km.add("left parens", Keystrokes::Shift(Key::Kp9));
+
         km.add("shift", Keystrokes::Down(Key::ShiftLeft));
         km.add("shift", Keystrokes::Down(Key::ShiftRight));
         km.add("shift", Keystrokes::Press(Key::ShiftLeft));
