@@ -194,12 +194,12 @@ pub fn voice_control() {
                                             let original_words =
                                                 words.split_whitespace().collect::<Vec<_>>();
                                             let mut words = &original_words[..];
-                                            let total = words.len();
+                                            let mut goodness = 0;
                                             while let Some((_,rest)) = rules.lock().unwrap().parse(words) {
                                                 words = rest;
+                                                goodness += 1;
                                             }
-                                            let goodness = total - words.len();
-                                            println!("{goodness:2}: {original_words:?}");
+                                            // println!("{goodness:2}: {original_words:?}");
                                             if goodness > best {
                                                 best = goodness;
                                                 best_vec = original_words.iter().map(|w| w.to_string()).collect();

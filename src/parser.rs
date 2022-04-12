@@ -446,7 +446,7 @@ pub fn my_rules() -> impl Parser<Output = Action> + Send {
 
     rules.add(Unless {
         parser: rules_if_listening,
-        unless: Box::new(|_: Tokens| AM_LISTENING.load(Ordering::Relaxed)),
+        unless: Box::new(|_: Tokens| !AM_LISTENING.load(Ordering::Relaxed)),
     });
     rules.finish_repeats();
     rules
