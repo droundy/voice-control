@@ -407,7 +407,6 @@ pub fn my_rules() -> impl Parser<Output = Action> + Send {
     let dication = Literals::new(&["dictation"]).with_repeats(
         AnyWord,
         Box::new(move |_, y| {
-            use rdev::Key;
             if y.len() > 0 {
                 let mut out = Vec::new();
                 for c in y[0].chars() {

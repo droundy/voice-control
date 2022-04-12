@@ -5,7 +5,6 @@ fn main() {
     // This will block.
     let mut current_strokes: Vec<Keystrokes> = Vec::new();
     let mut waiting_to_lift: Vec<Key> = Vec::new();
-    let mut am_lifting = false;
     let nato = voice_control::keys::KeyMapping::nato();
     let mapping = voice_control::keys::KeyMapping::roundy();
     if let Err(error) = listen(move |event: Event| {
@@ -72,7 +71,6 @@ fn main() {
                     _ => (),
                 }
             }
-            _ => (),
         }
     }) {
         println!("Error: {:?}", error)
