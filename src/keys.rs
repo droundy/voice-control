@@ -91,6 +91,22 @@ pub enum Keystrokes {
     Shift(Key),
     Down(Key),
 }
+impl Keystrokes {
+    pub fn key(self) -> Key {
+        match self {
+            Keystrokes::Press(k) => k,
+            Keystrokes::Shift(k) => k,
+            Keystrokes::Down(k) => k,
+        }
+    }
+    pub fn is_down(self) -> bool {
+        match self {
+            Keystrokes::Press(_) => false,
+            Keystrokes::Shift(_) => false,
+            Keystrokes::Down(_) => true,
+        }
+    }
+}
 
 pub(crate) fn char_to_keystrokes(c: char) -> Option<Keystrokes> {
     match c {
@@ -208,6 +224,7 @@ pub(crate) fn char_to_keystrokes(c: char) -> Option<Keystrokes> {
     }
 }
 
+#[derive(Clone, Debug)]
 pub struct KeyMapping {
     key_to_str: HashMap<Keystrokes, Vec<Vec<&'static str>>>,
     str_to_key: HashMap<Vec<&'static str>, Keystrokes>,
@@ -417,18 +434,27 @@ impl KeyMapping {
         km.add("equal", Keystrokes::Press(Key::Equal));
         km.add("single quote", Keystrokes::Press(Key::Quote));
         km.add("double quote", Keystrokes::Shift(Key::Quote));
+        km.add("semicolon", Keystrokes::Press(Key::SemiColon));
+        km.add("colon", Keystrokes::Shift(Key::SemiColon));
         km.add("back quote", Keystrokes::Press(Key::BackQuote));
         km.add("tilde", Keystrokes::Shift(Key::BackQuote));
         km.add("period", Keystrokes::Press(Key::Dot));
         km.add("comma", Keystrokes::Press(Key::Comma));
         km.add("slash", Keystrokes::Press(Key::Slash));
         km.add("question mark", Keystrokes::Shift(Key::Slash));
+        km.add("back slash", Keystrokes::Press(Key::BackSlash));
+        km.add("pipe character", Keystrokes::Shift(Key::BackSlash));
 
         km.add("greater than", Keystrokes::Shift(Key::Dot));
         km.add("wrangle", Keystrokes::Shift(Key::Dot));
 
         km.add("less than", Keystrokes::Shift(Key::Comma));
         km.add("langle", Keystrokes::Shift(Key::Comma));
+
+        km.add("left bracket", Keystrokes::Press(Key::LeftBracket));
+        km.add("left curly brace", Keystrokes::Shift(Key::LeftBracket));
+        km.add("right bracket", Keystrokes::Press(Key::RightBracket));
+        km.add("right curly brace", Keystrokes::Shift(Key::RightBracket));
 
         km.add("right parenthesis", Keystrokes::Shift(Key::Num0));
         km.add("right parentheses", Keystrokes::Shift(Key::Num0));

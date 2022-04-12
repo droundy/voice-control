@@ -5,15 +5,19 @@ fn main() {
     // This will block.
     let mut current_strokes: Vec<Keystrokes> = Vec::new();
     let mut waiting_to_lift: Vec<Key> = Vec::new();
+    let mut am_spelling = false;
     let nato = voice_control::keys::KeyMapping::nato();
     let mapping = voice_control::keys::KeyMapping::roundy();
+    let other_mapping = mapping.clone();
+    let is_modifier = move |key: Key| {
+        other_mapping.get_str(Keystrokes::Down(key)).is_some()
+    };
     if let Err(error) = listen(move |event: Event| {
         match event {
             Event { event_type, .. } => {
                 match event_type {
                     EventType::KeyPress(key) => {
-                        if mapping.get_str(Keystrokes::Down(key)).is_some() {
-                            // It is a modifier key.
+                        if is_modifier(key) {
                             current_strokes.push(Keystrokes::Down(key));
                         } else if key == Key::Return {
                             for k in current_strokes.drain(..) {
@@ -22,7 +26,26 @@ fn main() {
                                 }
                             }
                             println!("{}", mapping[Keystrokes::Press(key)][0][0]);
+                            am_spelling = false;
                         } else {
+                            if nato.get_str(Keystrokes::Press(key)).is_some() && !am_spelling {
+                                am_spelling = true;
+                                // We report any keys that are *pressed* before the "spell" command
+                                while current_strokes.len() > 0 && !current_strokes[0].is_down() {
+                                    let k = current_strokes.remove(0);
+                                    for s in &mapping[k][0] {
+                                        print!("{} ", s);
+                                    }
+                                }
+                                print!("spell ");
+                            } else {
+                                am_spelling = false;
+                                for k in current_strokes.drain(..) {
+                                    for s in &mapping[k][0] {
+                                        print!("{} ", s);
+                                    }
+                                }
+                            }
                             current_strokes.push(Keystrokes::Press(key));
                         }
                     }
@@ -65,6 +88,7 @@ fn main() {
                                     }
                                 }
                                 println!();
+                                am_spelling = false;
                             }
                         }
                     }
