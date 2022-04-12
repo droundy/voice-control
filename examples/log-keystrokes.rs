@@ -8,9 +8,13 @@ fn main() {
     let mut am_spelling = false;
     let nato = voice_control::keys::KeyMapping::nato();
     let mapping = voice_control::keys::KeyMapping::roundy();
+    let navigation = voice_control::keys::KeyMapping::navigation();
     let other_mapping = mapping.clone();
     let is_modifier = move |key: Key| {
         other_mapping.get_str(Keystrokes::Down(key)).is_some()
+    };
+    let is_navigation = move |key: Key| {
+        navigation.get_str(Keystrokes::Press(key)).is_some()
     };
     if let Err(error) = listen(move |event: Event| {
         match event {
@@ -38,7 +42,9 @@ fn main() {
                                     }
                                 }
                                 print!("spell ");
-                            } else {
+                            } else if is_navigation(key) {
+                                // we have now finished spelling, since we have
+                                // started navigating around.
                                 am_spelling = false;
                                 for k in current_strokes.drain(..) {
                                     for s in &mapping[k][0] {
