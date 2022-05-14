@@ -10,12 +10,8 @@ fn main() {
     let mapping = voice_control::keys::KeyMapping::roundy();
     let navigation = voice_control::keys::KeyMapping::navigation();
     let other_mapping = mapping.clone();
-    let is_modifier = move |key: Key| {
-        other_mapping.get_str(Keystrokes::Down(key)).is_some()
-    };
-    let is_navigation = move |key: Key| {
-        navigation.get_str(Keystrokes::Press(key)).is_some()
-    };
+    let is_modifier = move |key: Key| other_mapping.get_str(Keystrokes::Down(key)).is_some();
+    let is_navigation = move |key: Key| navigation.get_str(Keystrokes::Press(key)).is_some();
     if let Err(error) = listen(move |event: Event| {
         match event {
             Event { event_type, .. } => {
