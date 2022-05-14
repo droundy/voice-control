@@ -7,9 +7,9 @@ pub mod parser;
 pub mod keys;
 
 const VAD_SAMPLES: u32 = 16 * 30; // 30 ms at 16 kHz.  10 and 20 are also options.
+const REQUIRED_RATE: cpal::SampleRate = cpal::SampleRate(16000);
 #[allow(non_snake_case)]
 fn get_audio_input_16kHz<F: FnMut(&[i16]) + Send + 'static>(mut callback: F) -> ! {
-    const REQUIRED_RATE: cpal::SampleRate = cpal::SampleRate(16000);
     const THREE_RATE: cpal::SampleRate = cpal::SampleRate(3 * REQUIRED_RATE.0);
     use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
     let use_config = move |device: cpal::Device, config: cpal::SupportedStreamConfig| -> ! {
@@ -30,17 +30,20 @@ fn get_audio_input_16kHz<F: FnMut(&[i16]) + Send + 'static>(mut callback: F) -> 
         } else if config.sample_format() == cpal::SampleFormat::F32
             && config.sample_rate() == REQUIRED_RATE
         {
+            println!("Running with f32... at 16 kHz");
             let mut ints = Vec::new();
             let stream = device
                 .build_input_stream(
                     &config.into(),
                     move |data: &[f32], _: &cpal::InputCallbackInfo| {
+                        println!("I am in callback");
                         ints.clear();
                         ints.extend(
                             data.iter()
                                 .copied()
                                 .map(|f| (f * (i16::MAX as f32 - 1.0)) as i16),
                         );
+                        println!("got {} ints", ints.len());
                         callback(&ints);
                     },
                     move |err| {
@@ -54,10 +57,12 @@ fn get_audio_input_16kHz<F: FnMut(&[i16]) + Send + 'static>(mut callback: F) -> 
             && config.sample_rate() == THREE_RATE
         {
             let mut ints = Vec::new();
+            println!("running at higher hz");
             let stream = device
                 .build_input_stream(
                     &config.into(),
                     move |data: &[f32], _: &cpal::InputCallbackInfo| {
+                        println!("I am in callback");
                         ints.clear();
                         ints.extend(
                             data.iter()
@@ -151,12 +156,18 @@ pub fn voice_control() {
     model
         .enable_external_scorer("english/huge-vocabulary.scorer")
         .expect("unable to read scorer");
+    // model
+    //     .enable_callback_scorer(|s| {
+    //         if ["hello", "world", "greetings"].into_iter().any(|p| p.starts_with(s)) {
+    //             0.0
+    //         } else {
+    //             -100.0
+    //         }
+    //     })
+    //     .expect("unable to apply callback scorer");
     let model = Arc::new(model);
-    // let streaming = Arc::new(Mutex::new(
-    //     model.into_streaming().expect("trouble streaming the model"),
-    // ));
 
-    assert_eq!(model.get_sample_rate(), 16000);
+    assert_eq!(model.get_sample_rate(), REQUIRED_RATE.0 as i32);
     let vad = std::sync::Mutex::new(webrtc_vad::Vad::new_with_rate_and_mode(
         webrtc_vad::SampleRate::Rate16kHz,
         webrtc_vad::VadMode::Quality,
@@ -180,6 +191,7 @@ pub fn voice_control() {
             .chunks_exact(VAD_SAMPLES as usize)
             .any(|data| vad.is_voice_segment(data).expect("wrong size data sample"))
         {
+            println!("anything at all?");
             stream.feed_audio(&collected_data);
             have_sound = true;
         } else {
