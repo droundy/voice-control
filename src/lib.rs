@@ -27,6 +27,9 @@ fn get_audio_input_16kHz<F: FnMut(&[i16]) + Send + 'static>(mut callback: F) -> 
                 )
                 .expect("error creating stream");
             stream.play().unwrap();
+            loop {
+                std::thread::sleep(std::time::Duration::from_secs_f64(1.0e3));
+            }
         } else if config.sample_format() == cpal::SampleFormat::F32
             && config.sample_rate() == REQUIRED_RATE
         {
@@ -36,14 +39,12 @@ fn get_audio_input_16kHz<F: FnMut(&[i16]) + Send + 'static>(mut callback: F) -> 
                 .build_input_stream(
                     &config.into(),
                     move |data: &[f32], _: &cpal::InputCallbackInfo| {
-                        println!("I am in callback");
                         ints.clear();
                         ints.extend(
                             data.iter()
                                 .copied()
                                 .map(|f| (f * (i16::MAX as f32 - 1.0)) as i16),
                         );
-                        println!("got {} ints", ints.len());
                         callback(&ints);
                     },
                     move |err| {
@@ -53,6 +54,9 @@ fn get_audio_input_16kHz<F: FnMut(&[i16]) + Send + 'static>(mut callback: F) -> 
                 )
                 .expect("error creating stream");
             stream.play().unwrap();
+            loop {
+                std::thread::sleep(std::time::Duration::from_secs_f64(1.0e3));
+            }
         } else if config.sample_format() == cpal::SampleFormat::F32
             && config.sample_rate() == THREE_RATE
         {
@@ -62,7 +66,6 @@ fn get_audio_input_16kHz<F: FnMut(&[i16]) + Send + 'static>(mut callback: F) -> 
                 .build_input_stream(
                     &config.into(),
                     move |data: &[f32], _: &cpal::InputCallbackInfo| {
-                        println!("I am in callback");
                         ints.clear();
                         ints.extend(
                             data.iter()
@@ -79,11 +82,11 @@ fn get_audio_input_16kHz<F: FnMut(&[i16]) + Send + 'static>(mut callback: F) -> 
                 )
                 .expect("error creating stream");
             stream.play().unwrap();
+            loop {
+                std::thread::sleep(std::time::Duration::from_secs_f64(1.0e3));
+            }
         } else {
             panic!("Unsupported configuration!");
-        }
-        loop {
-            std::thread::sleep(std::time::Duration::from_secs_f64(1.0e3));
         }
     };
     let host = cpal::default_host();
@@ -156,15 +159,15 @@ pub fn voice_control() {
     model
         .enable_external_scorer("english/huge-vocabulary.scorer")
         .expect("unable to read scorer");
-    // model
-    //     .enable_callback_scorer(|s| {
-    //         if ["hello", "world", "greetings"].into_iter().any(|p| p.starts_with(s)) {
-    //             0.0
-    //         } else {
-    //             -100.0
-    //         }
-    //     })
-    //     .expect("unable to apply callback scorer");
+    model
+        .enable_callback_scorer(|s| {
+            if ["hello", "world", "greetings"].into_iter().any(|p| p.starts_with(s)) {
+                0.0
+            } else {
+                -100.0
+            }
+        })
+        .expect("unable to apply callback scorer");
     let model = Arc::new(model);
 
     assert_eq!(model.get_sample_rate(), REQUIRED_RATE.0 as i32);
@@ -181,7 +184,9 @@ pub fn voice_control() {
 
     let rules = Arc::new(std::sync::Mutex::new(parser::my_rules()));
     // let streaming_copy = streaming.clone();
+    println!("trying to get audio input...");
     get_audio_input_16kHz(move |data: &[i16]| {
+        stream.feed_audio(data);
         collected_data.extend(data);
         if collected_data.len() < VAD_SAMPLES as usize {
             return;
@@ -191,19 +196,18 @@ pub fn voice_control() {
             .chunks_exact(VAD_SAMPLES as usize)
             .any(|data| vad.is_voice_segment(data).expect("wrong size data sample"))
         {
-            println!("anything at all?");
             stream.feed_audio(&collected_data);
             have_sound = true;
         } else {
             if have_sound {
                 stream.feed_audio(&collected_data);
-                println!("Got some audio to process...");
                 let x = std::mem::replace(&mut stream, new_stream())
                     .finish_stream_with_metadata(32)
                     .unwrap()
                     .to_owned();
                 let mut best = 0;
                 let mut best_vec = Vec::new();
+                println!("Here is what we have:");
                 for c in x.transcripts().iter() {
                     let mut words = String::new();
                     for w in c.tokens().iter().map(|t| &t.text) {
