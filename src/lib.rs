@@ -4,6 +4,8 @@ use crate::parser::Parser;
 
 pub mod parser;
 
+pub mod newparser;
+
 pub mod keys;
 
 const VAD_SAMPLES: u32 = 16 * 30; // 30 ms at 16 kHz.  10 and 20 are also options.
@@ -161,7 +163,10 @@ pub fn voice_control() {
         .expect("unable to read scorer");
     model
         .enable_callback_scorer(|s| {
-            if ["hello", "world", "greetings"].into_iter().any(|p| p.starts_with(s)) {
+            if ["hello", "world", "greetings"]
+                .into_iter()
+                .any(|p| p.starts_with(s))
+            {
                 0.0
             } else {
                 -100.0
