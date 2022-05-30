@@ -2,6 +2,8 @@ use crate::keys::{char_to_keystrokes, Keystrokes};
 
 type Tokens<'a> = &'a [&'a str];
 
+pub mod number;
+
 pub trait Parser: 'static + Send {
     type Output: 'static;
     fn parse<'a>(&self, tokens: Tokens<'a>) -> Option<(Self::Output, Tokens<'a>)>;
