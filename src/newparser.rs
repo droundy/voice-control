@@ -6,16 +6,13 @@ pub enum Error {
 
 #[derive(Debug)]
 pub struct Description {
-    commands: Vec<String>,
+    command: String,
     patterns: Vec<(String, Vec<String>)>,
 }
 impl std::fmt::Display for Description {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         use std::fmt::Write;
-        for c in self.commands.iter() {
-            writeln!(f, "{}", c)?;
-        }
-        writeln!(f, "")?;
+        writeln!(f, "{}\n", self.command)?;
         for p in self.patterns.iter() {
             let mut line = format!("{}", p.0);
             for c in p.1.iter() {
@@ -96,6 +93,40 @@ impl<T: 'static> Parser<T> {
         }
         .into_parser()
     }
+    pub fn join<U: 'static, V: 'static, F: 'static + FnMut(T, U) -> V>(
+        self,
+        p2: Parser<U>,
+        f: F,
+    ) -> Parser<V> {
+        Join {
+            parser1: self,
+            parser2: p2,
+            join: Box::new(f),
+        }
+        .into_parser()
+    }
+}
+
+struct Join<T, U, V> {
+    parser1: Parser<T>,
+    parser2: Parser<U>,
+    join: Box<dyn FnMut(T, U) -> V>,
+}
+impl<T, U, V> IsParser<V> for Join<T, U, V> {
+    fn parse<'a>(&mut self, input: &'a str) -> Result<(V, &'a str), Error> {
+        let (v1, input) = self.parser1.parse(input)?;
+        let (v2, rest) = self.parser2.parse(input)?;
+        Ok(((self.join)(v1, v2), rest))
+    }
+
+    fn describe(&self) -> Description {
+        let mut d = self.parser1.describe();
+        let d2 = self.parser2.describe();
+        d.command.push_str(" ");
+        d.command.push_str(&d2.command);
+        d.patterns.extend(d2.patterns);
+        d
+    }
 }
 
 impl<T> IsParser<T> for Parser<T> {
@@ -127,13 +158,15 @@ impl<T> IsParser<T> for Parser<T> {
                 let mut other_patterns = Vec::new();
                 for parser in options.iter() {
                     let d = parser.describe();
-                    commands.extend(d.commands);
+                    commands.push(d.command);
                     other_patterns.extend(d.patterns);
                 }
                 let mut patterns = vec![(name.clone(), commands)];
                 patterns.extend(other_patterns);
-                let commands = vec![name.clone()];
-                Description { commands, patterns }
+                Description {
+                    command: name.clone(),
+                    patterns,
+                }
             }
         }
     }
@@ -161,7 +194,7 @@ impl IsParser<()> for &'static str {
     }
     fn describe(&self) -> Description {
         Description {
-            commands: vec![self.to_string()],
+            command: self.to_string(),
             patterns: Vec::new(),
         }
     }

@@ -19,7 +19,7 @@ pub fn digit() -> Parser<usize> {
 }
 pub fn counting_digit() -> Parser<usize> {
     choose(
-        "<digit>",
+        "<ones>",
         vec![
             "one".into_parser().gives(1),
             "two".into_parser().gives(2),
@@ -50,26 +50,48 @@ pub fn teen() -> Parser<usize> {
         ],
     )
 }
+pub fn tens() -> Parser<usize> {
+    choose(
+        "<tens>",
+        vec![
+            "twenty".into_parser().gives(20),
+            "thirty".into_parser().gives(30),
+            "fourty".into_parser().gives(40),
+            "fifty".into_parser().gives(50),
+            "sixty".into_parser().gives(60),
+            "seventy".into_parser().gives(70),
+            "eighty".into_parser().gives(80),
+            "ninety".into_parser().gives(90),
+        ],
+    )
+}
 
 pub fn number() -> Parser<usize> {
-    choose("<number>", vec![digit(), teen()])
+    choose(
+        "<number>",
+        vec![digit(), teen(), tens().join(counting_digit(), |a, b| a + b)],
+    )
 }
 
 #[test]
 fn test() {
     let mut p = number();
-    // let e = expect_test::expect![[r#"
-    //     <baby actions>
+    let e = expect_test::expect![[r#"
+        <number>
 
-    //     <baby actions>:
-    //         nurse
-    //         sleep
-    //         poop
-    //         cry
-    // "#]];
-    // e.assert_eq(&p.describe().to_string());
+        <number>: <digit> | <teen> | <tens> <ones>
+        <digit>: zero | one | two | three | four | five | six | seven | eight
+            | nine
+        <teen>: ten | eleven | twelve | thirteen | fourteen | fifteen | sixteen
+            | seventeen | eighteen | nineteen
+        <tens>: twenty | thirty | fourty | fifty | sixty | seventy | eighty
+            | ninety
+        <ones>: one | two | three | four | five | six | seven | eight | nine
+    "#]];
+    e.assert_eq(&p.describe().to_string());
 
     assert_eq!(Ok(1), p.parse_complete("one"));
+    assert_eq!(Ok(21), p.parse_complete("twenty one"));
 }
 
 #[test]
