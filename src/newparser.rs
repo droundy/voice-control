@@ -1,3 +1,5 @@
+use std::sync::Arc;
+
 #[derive(Debug, PartialEq, Eq)]
 pub enum Error {
     Incomplete,
@@ -35,9 +37,10 @@ impl std::fmt::Display for Description {
     }
 }
 
-pub trait IsParser<T> {
-    fn parse<'a>(&mut self, input: &'a str) -> Result<(T, &'a str), Error>;
-    fn parse_complete<'a>(&mut self, input: &'a str) -> Result<T, Error> {
+pub trait IsParser {
+    type Output: 'static;
+    fn parse<'a>(&self, input: &'a str) -> Result<(Self::Output, &'a str), Error>;
+    fn parse_complete<'a>(&mut self, input: &'a str) -> Result<Self::Output, Error> {
         match self.parse(input)? {
             (v, "") => Ok(v),
             _ => Err(Error::Wrong),
@@ -47,16 +50,45 @@ pub trait IsParser<T> {
     fn describe(&self) -> Description;
 }
 
-pub trait IntoParser<T>: Sized + IsParser<T> + 'static {
-    fn into_parser(self) -> Parser<T> {
-        Parser(P::Raw(Box::new(self)))
+pub trait IntoParser: Sized + IsParser + 'static {
+    fn into_parser(self) -> Parser<Self::Output> {
+        Parser(P::Raw(Arc::new(self)))
+    }
+
+    fn map<U: 'static, F: 'static + Fn(Self::Output) -> U>(self, f: F) -> Parser<U> {
+        Map {
+            parser: self.into_parser(),
+            f: Box::new(f),
+        }
+        .into_parser()
+    }
+    fn gives<U: 'static + Clone>(self, v: U) -> Parser<U> {
+        Map {
+            parser: self.into_parser(),
+            f: Box::new(move |_| v.clone()),
+        }
+        .into_parser()
+    }
+    fn join<P2: IntoParser, V: 'static, F: 'static + Fn(Self::Output, P2::Output) -> V>(
+        self,
+        p2: P2,
+        f: F,
+    ) -> Parser<V> {
+        Join {
+            parser1: self.into_parser(),
+            parser2: p2.into_parser(),
+            join: Box::new(f),
+        }
+        .into_parser()
     }
 }
-impl<T, PP: IsParser<T> + 'static> IntoParser<T> for PP {}
+impl<PP: IsParser + 'static> IntoParser for PP {}
 
+#[derive(Clone)]
 pub struct Parser<T>(P<T>);
+#[derive(Clone)]
 enum P<T> {
-    Raw(Box<dyn IsParser<T>>),
+    Raw(Arc<dyn IsParser<Output = T>>),
     Option {
         name: String,
         options: Vec<Parser<T>>,
@@ -65,10 +97,11 @@ enum P<T> {
 
 struct Map<T, U> {
     parser: Parser<T>,
-    f: Box<dyn FnMut(T) -> U>,
+    f: Box<dyn Fn(T) -> U>,
 }
-impl<T, U> IsParser<U> for Map<T, U> {
-    fn parse<'a>(&mut self, input: &'a str) -> Result<(U, &'a str), Error> {
+impl<T: 'static, U: 'static> IsParser for Map<T, U> {
+    type Output = U;
+    fn parse<'a>(&self, input: &'a str) -> Result<(U, &'a str), Error> {
         self.parser
             .parse(input)
             .map(|(v, rest)| ((self.f)(v), rest))
@@ -78,42 +111,14 @@ impl<T, U> IsParser<U> for Map<T, U> {
         self.parser.describe()
     }
 }
-impl<T: 'static> Parser<T> {
-    pub fn map<U: 'static, F: 'static + FnMut(T) -> U>(self, f: F) -> Parser<U> {
-        Map {
-            parser: self,
-            f: Box::new(f),
-        }
-        .into_parser()
-    }
-    pub fn gives<U: 'static + Clone>(self, v: U) -> Parser<U> {
-        Map {
-            parser: self,
-            f: Box::new(move |_| v.clone()),
-        }
-        .into_parser()
-    }
-    pub fn join<U: 'static, V: 'static, F: 'static + FnMut(T, U) -> V>(
-        self,
-        p2: Parser<U>,
-        f: F,
-    ) -> Parser<V> {
-        Join {
-            parser1: self,
-            parser2: p2,
-            join: Box::new(f),
-        }
-        .into_parser()
-    }
-}
-
 struct Join<T, U, V> {
     parser1: Parser<T>,
     parser2: Parser<U>,
-    join: Box<dyn FnMut(T, U) -> V>,
+    join: Box<dyn Fn(T, U) -> V>,
 }
-impl<T, U, V> IsParser<V> for Join<T, U, V> {
-    fn parse<'a>(&mut self, input: &'a str) -> Result<(V, &'a str), Error> {
+impl<T: 'static, U: 'static, V: 'static> IsParser for Join<T, U, V> {
+    type Output = V;
+    fn parse<'a>(&self, input: &'a str) -> Result<(V, &'a str), Error> {
         let (v1, input) = self.parser1.parse(input)?;
         let (v2, rest) = self.parser2.parse(input)?;
         Ok(((self.join)(v1, v2), rest))
@@ -124,28 +129,35 @@ impl<T, U, V> IsParser<V> for Join<T, U, V> {
         let d2 = self.parser2.describe();
         d.command.push_str(" ");
         d.command.push_str(&d2.command);
-        d.patterns.extend(d2.patterns);
+        let new_patterns: Vec<_> = d2
+            .patterns
+            .into_iter()
+            .filter(|p| !d.patterns.contains(p))
+            .collect();
+        d.patterns.extend(new_patterns);
         d
     }
 }
 
-impl<T> IsParser<T> for Parser<T> {
-    fn parse<'a>(&mut self, input: &'a str) -> Result<(T, &'a str), Error> {
-        match &mut self.0 {
+impl<T: 'static> IsParser for Parser<T> {
+    type Output = T;
+    fn parse<'a>(&self, input: &'a str) -> Result<(T, &'a str), Error> {
+        match &self.0 {
             P::Raw(p) => p.parse(input),
             P::Option { options, .. } => {
-                for parser in options.iter_mut() {
+                let mut e = Error::Wrong;
+                for parser in options.iter() {
                     match parser.parse(input) {
                         Ok(v) => {
                             return Ok(v);
                         }
                         Err(Error::Incomplete) => {
-                            return Err(Error::Incomplete);
+                            e = Error::Incomplete;
                         }
                         Err(Error::Wrong) => (),
                     }
                 }
-                Err(Error::Wrong)
+                Err(e)
             }
         }
     }
@@ -159,7 +171,12 @@ impl<T> IsParser<T> for Parser<T> {
                 for parser in options.iter() {
                     let d = parser.describe();
                     commands.push(d.command);
-                    other_patterns.extend(d.patterns);
+                    let new_patterns: Vec<_> = d
+                        .patterns
+                        .into_iter()
+                        .filter(|p| !other_patterns.contains(p))
+                        .collect();
+                    other_patterns.extend(new_patterns);
                 }
                 let mut patterns = vec![(name.clone(), commands)];
                 patterns.extend(other_patterns);
@@ -172,20 +189,21 @@ impl<T> IsParser<T> for Parser<T> {
     }
 }
 
-pub fn choose<T, PP: IntoParser<T>>(name: &str, options: Vec<PP>) -> Parser<T> {
+pub fn choose<T, PP: IntoParser<Output = T>>(name: &str, options: Vec<PP>) -> Parser<T> {
     Parser(P::Option {
         name: name.to_string(),
         options: options.into_iter().map(|p| p.into_parser()).collect(),
     })
 }
 
-impl IsParser<()> for &'static str {
-    fn parse<'a>(&mut self, input: &'a str) -> Result<((), &'a str), Error> {
+impl IsParser for &'static str {
+    type Output = &'static str;
+    fn parse<'a>(&self, input: &'a str) -> Result<(&'static str, &'a str), Error> {
         let tag_space = format!("{} ", self);
         if input == *self {
-            Ok(((), ""))
+            Ok((*self, ""))
         } else if input.starts_with(&tag_space) {
-            Ok(((), &input[tag_space.len()..]))
+            Ok((*self, &input[tag_space.len()..]))
         } else if self.starts_with(input) {
             Err(Error::Incomplete)
         } else {
@@ -197,6 +215,14 @@ impl IsParser<()> for &'static str {
             command: self.to_string(),
             patterns: Vec::new(),
         }
+    }
+}
+
+impl<T: 'static, P2: IntoParser> std::ops::Add<P2> for Parser<T> {
+    type Output = Parser<(T, P2::Output)>;
+
+    fn add(self, rhs: P2) -> Self::Output {
+        self.join(rhs, |a, b| (a, b))
     }
 }
 

@@ -67,31 +67,76 @@ pub fn tens() -> Parser<usize> {
 }
 
 pub fn number() -> Parser<usize> {
+    let subhundreds = choose(
+        "<subhundreds>",
+        vec![
+            "".gives(0),
+            counting_digit(),
+            teen(),
+            tens().join(counting_digit(), |a, b| a + b),
+        ],
+    );
+    let hundreds = choose(
+        "<hundreds>",
+        vec![
+            (counting_digit() + "hundred" + subhundreds).map(|((h, _), sh)| h * 100 + sh),
+            (counting_digit() + "hundred and" + counting_digit()).map(|((h, _), sh)| h * 100 + sh),
+            (counting_digit() + "hundred").map(|(h, _)| h * 100),
+            tens().join(counting_digit(), |a, b| a + b),
+            digit(),
+            teen(),
+        ],
+    );
     choose(
         "<number>",
-        vec![digit(), teen(), tens().join(counting_digit(), |a, b| a + b)],
+        vec![
+            (hundreds.clone() + "thousand" + hundreds.clone()).map(|((t, _), h)| t * 1000 + h),
+            (hundreds.clone() + "thousand").map(|(t, _)| t * 1000),
+            hundreds,
+        ],
     )
 }
 
 #[test]
 fn test() {
     let mut p = number();
+
+    assert_eq!(Ok(1), p.parse_complete("one"));
+    assert_eq!(Ok(21), p.parse_complete("twenty one"));
+    assert_eq!(Ok(321), p.parse_complete("three hundred twenty one"));
+    assert_eq!(Ok(300), p.parse_complete("three hundred"));
+    assert_eq!(
+        Ok(3_101),
+        p.parse_complete("three thousand one hundred one")
+    );
+    assert_eq!(
+        Ok(300_101),
+        p.parse_complete("three hundred thousand one hundred one")
+    );
+    assert_eq!(
+        Ok(300_101),
+        p.parse_complete("three hundred thousand one hundred and one")
+    );
+    assert_eq!(Ok(300_001), p.parse_complete("three hundred thousand one"));
+    assert_eq!(Ok(300_000), p.parse_complete("three hundred thousand"));
+
     let e = expect_test::expect![[r#"
         <number>
 
-        <number>: <digit> | <teen> | <tens> <ones>
-        <digit>: zero | one | two | three | four | five | six | seven | eight
-            | nine
+        <number>: <hundreds> thousand <hundreds> | <hundreds> thousand
+            | <hundreds>
+        <hundreds>: <ones> hundred <subhundreds> | <ones> hundred and <ones>
+            | <ones> hundred | <tens> <ones> | <digit> | <teen>
+        <ones>: one | two | three | four | five | six | seven | eight | nine
+        <subhundreds>:  | <ones> | <teen> | <tens> <ones>
         <teen>: ten | eleven | twelve | thirteen | fourteen | fifteen | sixteen
             | seventeen | eighteen | nineteen
         <tens>: twenty | thirty | fourty | fifty | sixty | seventy | eighty
             | ninety
-        <ones>: one | two | three | four | five | six | seven | eight | nine
+        <digit>: zero | one | two | three | four | five | six | seven | eight
+            | nine
     "#]];
     e.assert_eq(&p.describe().to_string());
-
-    assert_eq!(Ok(1), p.parse_complete("one"));
-    assert_eq!(Ok(21), p.parse_complete("twenty one"));
 }
 
 #[test]
