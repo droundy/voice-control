@@ -1,16 +1,13 @@
 use std::sync::Arc;
 
 pub mod parser;
-
-pub mod newparser;
-
 pub mod keys;
 
-pub mod desktop_control;
-use newparser::{ Parser, IsParser };
-use desktop_control::Action;
+// pub mod keys;
 
-use crate::newparser::Error;
+pub mod desktop_control;
+use parser::{ Parser, IsParser, Error };
+use desktop_control::Action;
 
 const VAD_SAMPLES: u32 = 16 * 30; // 30 ms at 16 kHz.  10 and 20 are also options.
 const REQUIRED_RATE: cpal::SampleRate = cpal::SampleRate(16000);
@@ -168,7 +165,7 @@ pub fn voice_control(commands: impl Fn() -> Parser<Action>) {
     let model_commands = commands();
     model
         .enable_callback_scorer(move |s| {
-            if let Err(crate::newparser::Error::Wrong) = model_commands.parse(s) {
+            if let Err(Error::Wrong) = model_commands.parse(s) {
                 -10.0
             } else {
                 0.0

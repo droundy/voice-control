@@ -1,4 +1,4 @@
-use crate::newparser::*;
+use super::*;
 
 pub fn nato() -> Parser<char> {
     choose(

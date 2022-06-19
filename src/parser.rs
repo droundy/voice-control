@@ -1,486 +1,351 @@
-use crate::keys::{char_to_keystrokes, Keystrokes};
-
-type Tokens<'a> = &'a [&'a str];
+use std::sync::Arc;
 
 pub mod number;
 pub mod spelling;
 pub mod roundy;
-pub trait Parser: 'static + Send {
+
+#[derive(Debug, PartialEq, Eq)]
+pub enum Error {
+    Incomplete,
+    Wrong,
+}
+
+#[derive(Debug)]
+pub struct Description {
+    command: String,
+    patterns: Vec<(String, Vec<String>)>,
+}
+impl std::fmt::Display for Description {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        use std::fmt::Write;
+        writeln!(f, "{}\n", self.command)?;
+        for p in self.patterns.iter() {
+            let mut line = format!("{}", p.0);
+            for c in p.1.iter() {
+                if line.len() + c.len() + 3 < 72 && !c.contains(":") {
+                    if line.contains(": ") || line.contains("    ") {
+                        write!(line, " | {}", c)?;
+                    } else {
+                        write!(line, ": {}", c)?;
+                    }
+                } else {
+                    f.write_str(&line)?;
+                    f.write_str("\n")?;
+                    line = format!("    | {}", c);
+                }
+            }
+            f.write_str(&line)?;
+            f.write_str("\n")?;
+        }
+        Ok(())
+    }
+}
+
+pub trait IsParser : Sync + Send {
     type Output: 'static;
-    fn parse<'a>(&self, tokens: Tokens<'a>) -> Option<(Self::Output, Tokens<'a>)>;
-
-    fn possible_starts(&self) -> Vec<&'static str>;
-
-    fn change_while_function(
-        &mut self,
-        _function: &dyn Fn() -> Box<dyn Fn(Tokens) -> bool + Send>,
-    ) {
+    fn parse<'a>(&self, input: &'a str) -> Result<(Self::Output, &'a str), Error>;
+    fn parse_complete<'a>(&mut self, input: &'a str) -> Result<Self::Output, Error> {
+        match self.parse(input)? {
+            (v, "") => Ok(v),
+            _ => Err(Error::Wrong),
+        }
     }
+
+    fn describe(&self) -> Description;
 }
 
-pub trait FancyParser: Parser + Sized {
-    fn map<U: 'static>(self, function: Box<dyn Fn(Self::Output) -> U + Send>) -> Map<Self, U> {
+pub trait IntoParser: Sized + IsParser + 'static {
+    fn into_parser(self) -> Parser<Self::Output> {
+        Parser(P::Raw(Arc::new(self)))
+    }
+
+    fn map<U: 'static, F: 'static + Sync + Send + Fn(Self::Output) -> U>(self, f: F) -> Parser<U> {
         Map {
-            parser: self,
-            function,
+            parser: self.into_parser(),
+            f: Box::new(f),
         }
+        .into_parser()
     }
-
-    fn unless(self, unless: Box<dyn Fn(Tokens) -> bool + Send + 'static>) -> Unless<Self> {
-        Unless {
-            parser: self,
-            unless,
+    fn gives<U: 'static +  Clone + Sync + Send>(self, v: U) -> Parser<U> {
+        Map {
+            parser: self.into_parser(),
+            f: Box::new(move |_| v.clone()),
         }
+        .into_parser()
     }
-
-    fn and_then<T2: Parser, U: 'static>(
+    fn join<P2: IntoParser, V: 'static, F: 'static + Sync + Send + Fn(Self::Output, P2::Output) -> V>(
         self,
-        second: T2,
-        function: Box<dyn Fn(Self::Output, T2::Output) -> U + Send>,
-    ) -> AndThen<Self, T2, U> {
-        AndThen {
-            first: self,
-            second,
-            function,
+        p2: P2,
+        f: F,
+    ) -> Parser<V> {
+        Join {
+            parser1: self.into_parser(),
+            parser2: p2.into_parser(),
+            join: Box::new(f),
         }
-    }
-    fn or<T2: Parser<Output = Self::Output>>(self, second: T2) -> Or<Self, T2> {
-        Or {
-            first: self,
-            second,
-        }
-    }
-
-    fn many_while(self, function: Box<dyn 'static + Fn(Tokens) -> bool + Send>) -> ManyWhile<Self> {
-        ManyWhile {
-            parser: self,
-            function,
-        }
-    }
-
-    fn with_repeats<R: Parser, U: 'static>(
-        self,
-        repeat: R,
-        join: Box<dyn 'static + Fn(Self::Output, Vec<R::Output>) -> U + Send>,
-    ) -> WithRepeats<Self, R, U> {
-        WithRepeats {
-            first: self,
-            repeat,
-            while_function: Box::new(|_| true),
-            join,
-        }
+        .into_parser()
     }
 }
+impl<PP: IsParser + 'static> IntoParser for PP {}
 
 #[derive(Clone)]
-pub struct Never;
-impl FancyParser for Never {}
-impl Parser for Never {
-    type Output = ();
-
-    fn parse<'a>(&self, _input: Tokens<'a>) -> Option<(Self::Output, Tokens<'a>)> {
-        None
-    }
-
-    fn possible_starts(&self) -> Vec<&'static str> {
-        Vec::new()
-    }
-}
-pub struct AnyWord;
-impl FancyParser for AnyWord {}
-impl Parser for AnyWord {
-    type Output = String;
-
-    fn parse<'a>(&self, input: Tokens<'a>) -> Option<(Self::Output, Tokens<'a>)> {
-        if input.len() > 0 {
-            Some((input[0].to_string(), &input[1..]))
-        } else {
-            None
-        }
-    }
-
-    fn possible_starts(&self) -> Vec<&'static str> {
-        Vec::new()
-    }
-}
-
+pub struct Parser<T>(P<T>);
 #[derive(Clone)]
-pub struct Literals {
-    tokens: Vec<Vec<&'static str>>,
-}
-impl FancyParser for Literals {}
-impl Parser for Literals {
-    type Output = Vec<&'static str>;
-
-    fn parse<'a>(&self, input: Tokens<'a>) -> Option<(Self::Output, Tokens<'a>)> {
-        for t in self.tokens.iter() {
-            if t.len() <= input.len() {
-                let (first, rest) = input.split_at(t.len());
-                if t == first {
-                    return Some((t.clone(), rest));
-                }
-            }
-        }
-        None
-    }
-
-    fn possible_starts(&self) -> Vec<&'static str> {
-        self.tokens.iter().map(|s| s[0]).collect()
-    }
+enum P<T> {
+    Raw(Arc<dyn IsParser<Output = T>>),
+    Option {
+        name: String,
+        options: Vec<Parser<T>>,
+    },
 }
 
-pub(crate) fn split_str(s: &'static str) -> Vec<&'static str> {
-    let mut toks = Vec::new();
-    for w in s.split_whitespace() {
-        if w.len() > 0 {
-            toks.push(w);
-        }
-    }
-    toks
+struct Map<T, U> {
+    parser: Parser<T>,
+    f: Box<dyn Fn(T) -> U + Sync + Send>,
 }
-
-impl Literals {
-    fn new(strings: &'static [&'static str]) -> Self {
-        let mut tokens = Vec::new();
-        for s in strings {
-            tokens.push(split_str(s));
-        }
-        Literals { tokens }
-    }
-}
-impl From<&crate::keys::KeyMapping> for Literals {
-    fn from(m: &crate::keys::KeyMapping) -> Self {
-        let mut tokens = Vec::new();
-        for s in m.all_starts() {
-            tokens.push(split_str(s));
-        }
-        Literals { tokens }
-    }
-}
-
-pub struct AndThen<T1: Parser, T2: Parser, U> {
-    first: T1,
-    second: T2,
-    function: Box<dyn Fn(T1::Output, T2::Output) -> U + Send>,
-}
-
-impl<T1: Parser, T2: Parser, U: 'static> FancyParser for AndThen<T1, T2, U> {}
-impl<T1: Parser, T2: Parser, U: 'static> Parser for AndThen<T1, T2, U> {
+impl<T: 'static, U: 'static> IsParser for Map<T, U> {
     type Output = U;
-
-    fn parse<'a>(&self, input: Tokens<'a>) -> Option<(Self::Output, Tokens<'a>)> {
-        let (v1, rest) = self.first.parse(input)?;
-        let (v2, rest) = self.second.parse(rest)?;
-        Some(((self.function)(v1, v2), rest))
+    fn parse<'a>(&self, input: &'a str) -> Result<(U, &'a str), Error> {
+        self.parser
+            .parse(input)
+            .map(|(v, rest)| ((self.f)(v), rest))
     }
 
-    fn possible_starts(&self) -> Vec<&'static str> {
-        self.first.possible_starts()
+    fn describe(&self) -> Description {
+        self.parser.describe()
+    }
+}
+struct Join<T, U, V> {
+    parser1: Parser<T>,
+    parser2: Parser<U>,
+    join: Box<dyn Fn(T, U) -> V + Sync + Send>,
+}
+impl<T: 'static, U: 'static, V: 'static> IsParser for Join<T, U, V> {
+    type Output = V;
+    fn parse<'a>(&self, input: &'a str) -> Result<(V, &'a str), Error> {
+        let (v1, input) = self.parser1.parse(input)?;
+        let (v2, rest) = self.parser2.parse(input)?;
+        Ok(((self.join)(v1, v2), rest))
+    }
+
+    fn describe(&self) -> Description {
+        let mut d = self.parser1.describe();
+        let d2 = self.parser2.describe();
+        d.command.push_str(" ");
+        d.command.push_str(&d2.command);
+        let new_patterns: Vec<_> = d2
+            .patterns
+            .into_iter()
+            .filter(|p| !d.patterns.contains(p))
+            .collect();
+        d.patterns.extend(new_patterns);
+        d
     }
 }
 
-pub struct Or<T1, T2> {
-    first: T1,
-    second: T2,
-}
-
-impl<T1: Parser, T2: Parser<Output = T1::Output>> FancyParser for Or<T1, T2> {}
-impl<T1: Parser, T2: Parser<Output = T1::Output>> Parser for Or<T1, T2> {
-    type Output = T1::Output;
-
-    fn parse<'a>(&self, input: Tokens<'a>) -> Option<(Self::Output, Tokens<'a>)> {
-        if let Some(r) = self.first.parse(input) {
-            Some(r)
-        } else {
-            self.second.parse(input)
-        }
-    }
-
-    fn possible_starts(&self) -> Vec<&'static str> {
-        self.first.possible_starts()
-    }
-}
-
-pub struct Map<T: Parser, U> {
-    parser: T,
-    function: Box<dyn Fn(T::Output) -> U + Send>,
-}
-
-impl<T: Parser, U: 'static> FancyParser for Map<T, U> {}
-impl<T: Parser, U: 'static> Parser for Map<T, U> {
-    type Output = U;
-
-    fn parse<'a>(&self, input: Tokens<'a>) -> Option<(Self::Output, Tokens<'a>)> {
-        let (intermediate, rest) = self.parser.parse(input)?;
-        Some(((self.function)(intermediate), rest))
-    }
-
-    fn possible_starts(&self) -> Vec<&'static str> {
-        self.parser.possible_starts()
-    }
-}
-
-pub struct ManyWhile<T> {
-    parser: T,
-    function: Box<dyn 'static + Fn(Tokens) -> bool + Send>,
-}
-
-impl<T: Parser> FancyParser for ManyWhile<T> {}
-impl<T: Parser> Parser for ManyWhile<T> {
-    type Output = Vec<T::Output>;
-
-    fn parse<'a>(&self, input: Tokens<'a>) -> Option<(Self::Output, Tokens<'a>)> {
-        let mut out = Vec::new();
-        let mut rest = input;
-        while (self.function)(rest) {
-            if let Some((v, r)) = self.parser.parse(rest) {
-                out.push(v);
-                rest = r;
-            } else {
-                break;
-            }
-        }
-        Some((out, rest))
-    }
-
-    fn possible_starts(&self) -> Vec<&'static str> {
-        self.parser.possible_starts()
-    }
-
-    fn change_while_function(&mut self, function: &dyn Fn() -> Box<dyn Fn(Tokens) -> bool + Send>) {
-        self.function = function();
-    }
-}
-
-pub struct WithRepeats<T1: Parser, T2: Parser, U> {
-    first: T1,
-    repeat: T2,
-    while_function: Box<dyn Fn(Tokens) -> bool + Send>,
-    join: Box<dyn Fn(T1::Output, Vec<T2::Output>) -> U + Send>,
-}
-impl<T1: Parser, T2: Parser, U: 'static> FancyParser for WithRepeats<T1, T2, U> {}
-impl<T1: Parser, T2: Parser, U: 'static> Parser for WithRepeats<T1, T2, U> {
-    type Output = U;
-
-    fn parse<'a>(&self, input: Tokens<'a>) -> Option<(Self::Output, Tokens<'a>)> {
-        let (first, mut rest) = self.first.parse(input)?;
-        let mut second = Vec::new();
-        while (self.while_function)(rest) {
-            if let Some((v, r)) = self.repeat.parse(rest) {
-                second.push(v);
-                rest = r;
-            } else {
-                break;
-            }
-        }
-        Some(((self.join)(first, second), rest))
-    }
-
-    fn possible_starts(&self) -> Vec<&'static str> {
-        self.first.possible_starts()
-    }
-}
-
-pub struct Unless<T> {
-    parser: T,
-    unless: Box<dyn Fn(Tokens) -> bool + Send>,
-}
-impl<T: Parser> Parser for Unless<T> {
-    type Output = T::Output;
-
-    fn parse<'a>(&self, tokens: Tokens<'a>) -> Option<(Self::Output, Tokens<'a>)> {
-        if !(self.unless)(tokens) {
-            self.parser.parse(tokens)
-        } else {
-            None
-        }
-    }
-
-    fn possible_starts(&self) -> Vec<&'static str> {
-        self.parser.possible_starts()
-    }
-
-    fn change_while_function(&mut self, function: &dyn Fn() -> Box<dyn Fn(Tokens) -> bool + Send>) {
-        self.parser.change_while_function(function)
-    }
-}
-
-pub struct RuleSet<O> {
-    all_rules: Vec<Box<dyn Parser<Output = O>>>,
-}
-impl<O: 'static> Parser for RuleSet<O> {
-    type Output = O;
-
-    fn parse<'a>(&self, input: Tokens<'a>) -> Option<(Self::Output, Tokens<'a>)> {
-        for r in self.all_rules.iter() {
-            if let Some((v, rest)) = r.parse(input) {
-                return Some((v, rest));
-            }
-        }
-        None
-    }
-
-    fn possible_starts(&self) -> Vec<&'static str> {
-        let mut out = Vec::new();
-        for r in self.all_rules.iter() {
-            for p in r.possible_starts().iter() {
-                if !out.contains(p) {
-                    out.push(*p);
-                }
-            }
-        }
-        out
-    }
-
-    fn change_while_function(&mut self, function: &dyn Fn() -> Box<dyn Fn(Tokens) -> bool + Send>) {
-        for r in self.all_rules.iter_mut() {
-            r.change_while_function(function)
-        }
-    }
-}
-
-impl<O: 'static> RuleSet<O> {
-    pub fn new() -> Self {
-        RuleSet {
-            all_rules: Vec::new(),
-        }
-    }
-    pub fn add<T: Parser<Output = O>>(&mut self, parser: T) {
-        self.all_rules.push(Box::new(parser))
-    }
-    pub fn finish_repeats(&mut self) {
-        let start_tokens = self.possible_starts();
-        self.change_while_function(&move || {
-            let another = start_tokens.clone();
-            Box::new(move |t| t.len() > 0 && !another.contains(&&t[0]))
-        })
-    }
-}
-
-// #[derive(Debug, PartialEq, Eq)]
-pub enum Action {
-    Keys(Vec<Keystrokes>),
-    // KeyPress,
-    // Sequence(Vec<Action>),
-    Function(Box<dyn Fn()>),
-}
-impl Action {
-    pub fn function<F: 'static + Fn()>(f: F) -> Self {
-        Action::Function(Box::new(f))
-    }
-    pub fn run(self) {
-        match self {
-            Action::Keys(s) => {
-                crate::keys::send_keystrokes(&s);
-            }
-            Action::Function(f) => {
-                f();
-            }
-        }
-    }
-}
-
-pub fn my_rules() -> impl Parser<Output = Action> + Send {
-    use std::sync::atomic::{AtomicBool, Ordering};
-    static AM_LISTENING: AtomicBool = AtomicBool::new(false);
-    let listening = Literals::new(&["start", "stop"]).and_then(
-        Literals::new(&["listening"]),
-        Box::new(|verb, _| {
-            let starting = &verb == &["start"];
-            Action::function(move || {
-                println!("{} listening", if starting { "start" } else { "stop" });
-                AM_LISTENING.store(starting, Ordering::Relaxed)
-            })
-        }),
-    );
-
-    let keymapping = crate::keys::KeyMapping::roundy();
-    let letters = Literals::from(&keymapping);
-    let spell = Literals::new(&["spell"]).with_repeats(
-        letters,
-        Box::new(move |_, y: Vec<Vec<&'static str>>| {
-            let mut out = Vec::new();
-            for c in y {
-                out.push(keymapping[&c[..]]);
-            }
-            Action::Keys(out)
-        }),
-    );
-
-    let navigation = crate::keys::KeyMapping::navigation();
-    let navigation = Literals::from(&navigation).map(Box::new(move |y: Vec<&'static str>| {
-        let mut out = Vec::new();
-        for c in y {
-            out.push(navigation[&c[..]]);
-        }
-        Action::Keys(out)
-    }));
-
-    let dication = Literals::new(&["dictation"]).with_repeats(
-        AnyWord,
-        Box::new(move |_, y| {
-            if y.len() > 0 {
-                let mut out = Vec::new();
-                for c in y[0].chars() {
-                    out.push(char_to_keystrokes(c).expect("bad char 1"));
-                }
-                y[0].to_string();
-                for s in y[1..].iter() {
-                    out.push(char_to_keystrokes(' ').expect("bad char 2"));
-                    for c in s.chars() {
-                        out.push(char_to_keystrokes(c).expect("bad char 3"));
+impl<T: 'static> IsParser for Parser<T> {
+    type Output = T;
+    fn parse<'a>(&self, input: &'a str) -> Result<(T, &'a str), Error> {
+        match &self.0 {
+            P::Raw(p) => p.parse(input),
+            P::Option { options, .. } => {
+                let mut e = Error::Wrong;
+                for parser in options.iter() {
+                    match parser.parse(input) {
+                        Ok(v) => {
+                            return Ok(v);
+                        }
+                        Err(Error::Incomplete) => {
+                            e = Error::Incomplete;
+                        }
+                        Err(Error::Wrong) => (),
                     }
                 }
-                Action::Keys(out)
-            } else {
-                Action::Keys(Vec::new())
+                Err(e)
             }
-        }),
-    );
+        }
+    }
 
-    let mut rules = RuleSet::new();
-    rules.add(listening);
+    fn describe(&self) -> Description {
+        match &self.0 {
+            P::Raw(p) => p.describe(),
+            P::Option { name, options } => {
+                let mut commands = Vec::new();
+                let mut other_patterns = Vec::new();
+                for parser in options.iter() {
+                    let d = parser.describe();
+                    commands.push(d.command);
+                    let new_patterns: Vec<_> = d
+                        .patterns
+                        .into_iter()
+                        .filter(|p| !other_patterns.contains(p))
+                        .collect();
+                    other_patterns.extend(new_patterns);
+                }
+                let mut patterns = vec![(name.clone(), commands)];
+                patterns.extend(other_patterns);
+                Description {
+                    command: name.clone(),
+                    patterns,
+                }
+            }
+        }
+    }
+}
 
-    let mut rules_if_listening = RuleSet::new();
-    rules_if_listening.add(spell);
-    rules_if_listening.add(dication);
-    rules_if_listening.add(navigation);
-    rules_if_listening.finish_repeats();
+pub fn choose<T, PP: IntoParser<Output = T>>(name: &str, options: Vec<PP>) -> Parser<T> {
+    Parser(P::Option {
+        name: name.to_string(),
+        options: options.into_iter().map(|p| p.into_parser()).collect(),
+    })
+}
 
-    rules.add(Unless {
-        parser: rules_if_listening,
-        unless: Box::new(|_: Tokens| !AM_LISTENING.load(Ordering::Relaxed)),
-    });
-    rules.finish_repeats();
-    rules
+impl IsParser for &'static str {
+    type Output = &'static str;
+    fn parse<'a>(&self, input: &'a str) -> Result<(&'static str, &'a str), Error> {
+        let tag_space = format!("{} ", self);
+        if input == *self {
+            Ok((*self, ""))
+        } else if input.starts_with(&tag_space) {
+            Ok((*self, &input[tag_space.len()..]))
+        } else if self.starts_with(input) {
+            Err(Error::Incomplete)
+        } else {
+            Err(Error::Wrong)
+        }
+    }
+    fn describe(&self) -> Description {
+        Description {
+            command: self.to_string(),
+            patterns: Vec::new(),
+        }
+    }
+}
+
+struct Many1<T>(Parser<T>);
+
+impl<T: 'static> IsParser for Many1<T> {
+    type Output = Vec<T>;
+
+    fn parse<'a>(&self, input: &'a str) -> Result<(Self::Output, &'a str), Error> {
+        todo!()
+    }
+
+    fn describe(&self) -> Description {
+        let mut d = self.0.describe();
+        d.command = format!("{}+", d.command);
+        d
+    }
+}
+
+impl<T: 'static, P2: IntoParser> std::ops::Add<P2> for Parser<T> {
+    type Output = Parser<(T, P2::Output)>;
+
+    fn add(self, rhs: P2) -> Self::Output {
+        self.join(rhs, |a, b| (a, b))
+    }
 }
 
 #[test]
-fn test_parser() {
-    let greeting = Literals::new(&["hello", "hi"]);
-    assert_eq!(
-        Some((vec!["hello"], &["world"][..])),
-        greeting.parse(&["hello", "world"])
-    );
-    assert_eq!(None, greeting.parse(&["great", "hello", "world"]));
-    assert_eq!(
-        Some(("hello".to_string(), &["world"][..])),
-        greeting
-            .map(Box::new(|s: Vec<&'static str>| s[0].to_string()))
-            .parse(&["hello", "world"])
-    );
+fn test_baby_actions() {
+    let mut p = choose("<baby actions>", vec!["nurse", "sleep", "poop", "cry"]);
+    let e = expect_test::expect![[r#"
+        <baby actions>
 
-    let _mine = my_rules();
-    // assert_eq!(
-    //     Some((
-    //         Action::Keys("start listening".to_string()),
-    //         &["then", "do", "something"][..]
-    //     )),
-    //     mine.parse(&["start", "listening", "then", "do", "something"])
-    // );
+        <baby actions>: nurse | sleep | poop | cry
+    "#]];
 
-    // assert_eq!(
-    //     Some((Action::Keys("ac".to_string()), &["and", "more"][..])),
-    //     mine.parse(&["spell", "alpha", "charlie", "and", "more"])
-    // );
+    assert!(p.parse("nurse").is_ok());
+    assert!(p.parse("nurse more").is_ok());
+    assert!(p.parse_complete("nurse more").is_err());
+    assert!(p.parse("poop").is_ok());
+    assert_eq!(Err(Error::Incomplete), p.parse("poo"));
+    assert_eq!(Err(Error::Wrong), p.parse("pee"));
+
+    // Now with `gives`
+    let mut p = choose(
+        "<baby actions>",
+        vec![
+            "nurse".into_parser().gives(1usize),
+            "sleep".into_parser().gives(2usize),
+            "poop".into_parser().gives(13),
+            "cry".into_parser().gives(1usize),
+        ],
+    );
+    e.assert_eq(&p.describe().to_string());
+
+    assert_eq!(Ok(1), p.parse_complete("nurse"));
+    assert!(p.parse("nurse more").is_ok());
+    assert!(p.parse_complete("nurse more").is_err());
+    assert_eq!(Ok(13), p.parse_complete("poop"));
+    assert_eq!(Err(Error::Incomplete), p.parse("poo"));
+    assert_eq!(Err(Error::Wrong), p.parse("pee"));
 }
+
+// pub struct Parser<T> {
+//     parse: Box<dyn FnMut(&str) -> Result<(T, &str), Error>>,
+// }
+
+// impl<T: 'static> Parser<T> {
+//     pub fn and_then<U: 'static>(mut self, mut next: Box<dyn FnMut(T) -> Parser<U>>) -> Parser<U> {
+//         Parser {
+//             parse: Box::new(move |input| {
+//                 let (val, rest) = (self.parse)(input)?;
+//                 let mut parser = next(val);
+//                 (parser.parse)(rest)
+//             }),
+//         }
+//     }
+// }
+
+// pub fn choose<T: 'static>(mut options: Vec<Parser<T>>) -> Parser<T> {
+//     Parser {
+//         parse: Box::new(move |input| {
+//             for parser in options.iter_mut() {
+//                 match (parser.parse)(input) {
+//                     Ok(v) => {
+//                         return Ok(v);
+//                     }
+//                     Err(Error::Incomplete) => {
+//                         return Err(Error::Incomplete);
+//                     }
+//                     Err(Error::Wrong) => (),
+//                 }
+//             }
+//             Err(Error::Wrong)
+//         }),
+//     }
+// }
+
+// impl From<&'static str> for Parser<&'static str> {
+//     fn from(tag: &'static str) -> Self {
+//         let tag_space = format!("{} ", tag);
+//         Parser {
+//             parse: Box::new(move |input| {
+//                 if input == tag {
+//                     Ok((tag, ""))
+//                 } else if input.starts_with(&tag_space) {
+//                     Ok((tag, &input[tag_space.len()..]))
+//                 } else if tag.starts_with(input) {
+//                     Err(Error::Incomplete)
+//                 } else {
+//                     Err(Error::Wrong)
+//                 }
+//             }),
+//         }
+//     }
+// }
+
+// impl Parser for &'static str {
+//     type Output = &'static str;
+
+//     fn parse<'a>(&self, input: &'a str) -> Result<(Self::Output, &'a str), Error> {
+//         if input.starts_with(*self) {
+//             Ok((*self, &input[self.len()..]))
+//         } else if self.starts_with(input) {
+//             Err(Error::Incomplete)
+//         } else {
+//             Err(Error::Wrong)
+//         }
+//     }
+// }

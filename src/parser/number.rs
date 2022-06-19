@@ -1,4 +1,4 @@
-use crate::newparser::*;
+use super::*;
 
 pub fn digit() -> Parser<usize> {
     choose(
