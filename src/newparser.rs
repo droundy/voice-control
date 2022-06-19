@@ -37,7 +37,7 @@ impl std::fmt::Display for Description {
     }
 }
 
-pub trait IsParser {
+pub trait IsParser : Sync + Send {
     type Output: 'static;
     fn parse<'a>(&self, input: &'a str) -> Result<(Self::Output, &'a str), Error>;
     fn parse_complete<'a>(&mut self, input: &'a str) -> Result<Self::Output, Error> {
@@ -55,21 +55,21 @@ pub trait IntoParser: Sized + IsParser + 'static {
         Parser(P::Raw(Arc::new(self)))
     }
 
-    fn map<U: 'static, F: 'static + Fn(Self::Output) -> U>(self, f: F) -> Parser<U> {
+    fn map<U: 'static, F: 'static + Sync + Send + Fn(Self::Output) -> U>(self, f: F) -> Parser<U> {
         Map {
             parser: self.into_parser(),
             f: Box::new(f),
         }
         .into_parser()
     }
-    fn gives<U: 'static + Clone>(self, v: U) -> Parser<U> {
+    fn gives<U: 'static +  Clone + Sync + Send>(self, v: U) -> Parser<U> {
         Map {
             parser: self.into_parser(),
             f: Box::new(move |_| v.clone()),
         }
         .into_parser()
     }
-    fn join<P2: IntoParser, V: 'static, F: 'static + Fn(Self::Output, P2::Output) -> V>(
+    fn join<P2: IntoParser, V: 'static, F: 'static + Sync + Send + Fn(Self::Output, P2::Output) -> V>(
         self,
         p2: P2,
         f: F,
@@ -97,7 +97,7 @@ enum P<T> {
 
 struct Map<T, U> {
     parser: Parser<T>,
-    f: Box<dyn Fn(T) -> U>,
+    f: Box<dyn Fn(T) -> U + Sync + Send>,
 }
 impl<T: 'static, U: 'static> IsParser for Map<T, U> {
     type Output = U;
@@ -114,7 +114,7 @@ impl<T: 'static, U: 'static> IsParser for Map<T, U> {
 struct Join<T, U, V> {
     parser1: Parser<T>,
     parser2: Parser<U>,
-    join: Box<dyn Fn(T, U) -> V>,
+    join: Box<dyn Fn(T, U) -> V + Sync + Send>,
 }
 impl<T: 'static, U: 'static, V: 'static> IsParser for Join<T, U, V> {
     type Output = V;
@@ -215,6 +215,22 @@ impl IsParser for &'static str {
             command: self.to_string(),
             patterns: Vec::new(),
         }
+    }
+}
+
+struct Many1<T>(Parser<T>);
+
+impl<T: 'static> IsParser for Many1<T> {
+    type Output = Vec<T>;
+
+    fn parse<'a>(&self, input: &'a str) -> Result<(Self::Output, &'a str), Error> {
+        todo!()
+    }
+
+    fn describe(&self) -> Description {
+        let mut d = self.0.describe();
+        d.command = format!("{}+", d.command);
+        d
     }
 }
 

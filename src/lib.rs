@@ -1,12 +1,16 @@
 use std::sync::Arc;
 
-use crate::parser::Parser;
-
 pub mod parser;
 
 pub mod newparser;
 
 pub mod keys;
+
+pub mod desktop_control;
+use newparser::{ Parser, IsParser };
+use desktop_control::Action;
+
+use crate::newparser::Error;
 
 const VAD_SAMPLES: u32 = 16 * 30; // 30 ms at 16 kHz.  10 and 20 are also options.
 const REQUIRED_RATE: cpal::SampleRate = cpal::SampleRate(16000);
@@ -156,20 +160,18 @@ fn get_audio_input_16kHz<F: FnMut(&[i16]) + Send + 'static>(mut callback: F) -> 
     panic!("No supported audio config!");
 }
 
-pub fn voice_control() {
+pub fn voice_control(commands: impl Fn() -> Parser<Action>) {
     let mut model = coqui_stt::Model::new("english/model.tflite").expect("unable to create model");
     model
         .enable_external_scorer("english/huge-vocabulary.scorer")
         .expect("unable to read scorer");
+    let model_commands = commands();
     model
-        .enable_callback_scorer(|s| {
-            if ["hello", "world", "greetings"]
-                .into_iter()
-                .any(|p| p.starts_with(s))
-            {
-                0.0
+        .enable_callback_scorer(move |s| {
+            if let Err(crate::newparser::Error::Wrong) = model_commands.parse(s) {
+                -10.0
             } else {
-                -100.0
+                0.0
             }
         })
         .expect("unable to apply callback scorer");
@@ -187,13 +189,12 @@ pub fn voice_control() {
     let mut stream = new_stream();
     let mut collected_data: Vec<i16> = Vec::new();
 
-    let rules = Arc::new(std::sync::Mutex::new(parser::my_rules()));
-    // let streaming_copy = streaming.clone();
+    let execute_commands = commands();
     println!("trying to get audio input...");
     get_audio_input_16kHz(move |data: &[i16]| {
         stream.feed_audio(data);
         collected_data.extend(data);
-        if collected_data.len() < VAD_SAMPLES as usize {
+        if collected_data.len() < 2*VAD_SAMPLES as usize {
             return;
         }
         let mut vad = vad.lock().unwrap();
@@ -207,37 +208,47 @@ pub fn voice_control() {
             if have_sound {
                 stream.feed_audio(&collected_data);
                 let x = std::mem::replace(&mut stream, new_stream())
-                    .finish_stream_with_metadata(32)
+                    .finish_stream_with_metadata(2)
                     .unwrap()
                     .to_owned();
-                let mut best = 0;
-                let mut best_vec = Vec::new();
                 println!("Here is what we have:");
-                for c in x.transcripts().iter() {
+                let transcripts = x.transcripts();
+                let scores: Vec<f64> = transcripts.iter().map(|c| c.confidence()).collect();
+                let phrases: Vec<String> = transcripts.iter().map(|c| {
                     let mut words = String::new();
                     for w in c.tokens().iter().map(|t| &t.text) {
                         words.push_str(w.as_ref());
                     }
-                    let original_words = words.split_whitespace().collect::<Vec<_>>();
-                    let mut words = &original_words[..];
-                    let mut goodness = 0;
-                    while let Some((_, rest)) = rules.lock().unwrap().parse(words) {
-                        words = rest;
-                        goodness += 1;
+                    words
+                }).collect();
+                println!("{:?} exceeds {:?} by {:?}", phrases[0], phrases[1], scores[0] - scores[1]);
+                if phrases[0] != "" {
+                match execute_commands.parse(&phrases[0]) {
+                    Err(Error::Incomplete) => {
+                        println!("    Maybe you didn't finish?");
                     }
-                    println!("{goodness:2}: {original_words:?}");
-                    if goodness > best {
-                        best = goodness;
-                        best_vec = original_words.iter().map(|w| w.to_string()).collect();
+                    Err(Error::Wrong) => {
+                        println!("    This is bogus!");
+                    }
+                    Ok((action, "")) => {
+                        println!("    Running action {action:?}");
+                        action.run();
+                    }
+                    Ok((action,remainder)) => {
+                        println!("    We had extra words: {remainder:?} after {action:?}");
                     }
                 }
-                let words = best_vec.iter().map(|w| w.as_str()).collect::<Vec<_>>();
-                let mut words = &words[..];
-                while let Some((a, rest)) = rules.lock().unwrap().parse(&words[..]) {
-                    assert!(rest.len() < words.len());
-                    words = rest;
-                    a.run();
-                }
+            }
+                // for c in x.transcripts().iter() {
+                //     let action = execute_commands.parse(&words);
+                //     println!("{sc:7.2}: {words:?} {action:?}");
+                // }
+                // let mut words = &words[..];
+                // while let Some((a, rest)) = rules.lock().unwrap().parse(&words[..]) {
+                //     assert!(rest.len() < words.len());
+                //     words = rest;
+                //     a.run();
+                // }
             }
             have_sound = false;
         }
