@@ -2,7 +2,15 @@ use std::{collections::HashMap, ops::Index};
 
 use rdev::{simulate, EventType, Key, SimulateError};
 
-use crate::parser::split_str;
+fn split_str(s: &'static str) -> Vec<&'static str> {
+    let mut toks = Vec::new();
+    for w in s.split_whitespace() {
+        if w.len() > 0 {
+            toks.push(w);
+        }
+    }
+    toks
+}
 
 fn send(event_type: &EventType) {
     let delay = std::time::Duration::from_millis(20);

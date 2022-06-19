@@ -2,7 +2,7 @@
 
 use crate::desktop_control::Action;
 
-use super::{Parser, IntoParser};
+use super::{IntoParser, Parser};
 
 pub fn parser() -> Parser<Action> {
     let number = super::number::number();

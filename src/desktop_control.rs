@@ -1,6 +1,5 @@
 use std::fmt::Debug;
 
-
 pub struct Action {
     f: Box<dyn Fn() + Sync + Send>,
     name: String,
@@ -13,7 +12,10 @@ impl Action {
 
     pub fn only_log(input: &str) -> Self {
         let input = input.to_string();
-        Action { name: format!("log {:?}", input), f: Box::new(move || println!("{}", input)) }
+        Action {
+            name: format!("log {:?}", input),
+            f: Box::new(move || println!("{}", input)),
+        }
     }
 }
 

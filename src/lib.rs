@@ -1,13 +1,13 @@
 use std::sync::Arc;
 
-pub mod parser;
 pub mod keys;
+pub mod parser;
 
 // pub mod keys;
 
 pub mod desktop_control;
-use parser::{ Parser, IsParser, Error };
 use desktop_control::Action;
+use parser::{Error, IsParser, Parser};
 
 const VAD_SAMPLES: u32 = 16 * 30; // 30 ms at 16 kHz.  10 and 20 are also options.
 const REQUIRED_RATE: cpal::SampleRate = cpal::SampleRate(16000);
@@ -191,7 +191,7 @@ pub fn voice_control(commands: impl Fn() -> Parser<Action>) {
     get_audio_input_16kHz(move |data: &[i16]| {
         stream.feed_audio(data);
         collected_data.extend(data);
-        if collected_data.len() < 2*VAD_SAMPLES as usize {
+        if collected_data.len() < 2 * VAD_SAMPLES as usize {
             return;
         }
         let mut vad = vad.lock().unwrap();
@@ -211,31 +211,39 @@ pub fn voice_control(commands: impl Fn() -> Parser<Action>) {
                 println!("Here is what we have:");
                 let transcripts = x.transcripts();
                 let scores: Vec<f64> = transcripts.iter().map(|c| c.confidence()).collect();
-                let phrases: Vec<String> = transcripts.iter().map(|c| {
-                    let mut words = String::new();
-                    for w in c.tokens().iter().map(|t| &t.text) {
-                        words.push_str(w.as_ref());
-                    }
-                    words
-                }).collect();
-                println!("{:?} exceeds {:?} by {:?}", phrases[0], phrases[1], scores[0] - scores[1]);
+                let phrases: Vec<String> = transcripts
+                    .iter()
+                    .map(|c| {
+                        let mut words = String::new();
+                        for w in c.tokens().iter().map(|t| &t.text) {
+                            words.push_str(w.as_ref());
+                        }
+                        words
+                    })
+                    .collect();
+                println!(
+                    "{:?} exceeds {:?} by {:?}",
+                    phrases[0],
+                    phrases[1],
+                    scores[0] - scores[1]
+                );
                 if phrases[0] != "" {
-                match execute_commands.parse(&phrases[0]) {
-                    Err(Error::Incomplete) => {
-                        println!("    Maybe you didn't finish?");
-                    }
-                    Err(Error::Wrong) => {
-                        println!("    This is bogus!");
-                    }
-                    Ok((action, "")) => {
-                        println!("    Running action {action:?}");
-                        action.run();
-                    }
-                    Ok((action,remainder)) => {
-                        println!("    We had extra words: {remainder:?} after {action:?}");
+                    match execute_commands.parse(&phrases[0]) {
+                        Err(Error::Incomplete) => {
+                            println!("    Maybe you didn't finish?");
+                        }
+                        Err(Error::Wrong) => {
+                            println!("    This is bogus!");
+                        }
+                        Ok((action, "")) => {
+                            println!("    Running action {action:?}");
+                            action.run();
+                        }
+                        Ok((action, remainder)) => {
+                            println!("    We had extra words: {remainder:?} after {action:?}");
+                        }
                     }
                 }
-            }
                 // for c in x.transcripts().iter() {
                 //     let action = execute_commands.parse(&words);
                 //     println!("{sc:7.2}: {words:?} {action:?}");

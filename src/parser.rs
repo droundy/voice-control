@@ -1,8 +1,8 @@
 use std::sync::Arc;
 
 pub mod number;
-pub mod spelling;
 pub mod roundy;
+pub mod spelling;
 
 #[derive(Debug, PartialEq, Eq)]
 pub enum Error {
@@ -41,7 +41,7 @@ impl std::fmt::Display for Description {
     }
 }
 
-pub trait IsParser : Sync + Send {
+pub trait IsParser: Sync + Send {
     type Output: 'static;
     fn parse<'a>(&self, input: &'a str) -> Result<(Self::Output, &'a str), Error>;
     fn parse_complete<'a>(&mut self, input: &'a str) -> Result<Self::Output, Error> {
@@ -66,14 +66,18 @@ pub trait IntoParser: Sized + IsParser + 'static {
         }
         .into_parser()
     }
-    fn gives<U: 'static +  Clone + Sync + Send>(self, v: U) -> Parser<U> {
+    fn gives<U: 'static + Clone + Sync + Send>(self, v: U) -> Parser<U> {
         Map {
             parser: self.into_parser(),
             f: Box::new(move |_| v.clone()),
         }
         .into_parser()
     }
-    fn join<P2: IntoParser, V: 'static, F: 'static + Sync + Send + Fn(Self::Output, P2::Output) -> V>(
+    fn join<
+        P2: IntoParser,
+        V: 'static,
+        F: 'static + Sync + Send + Fn(Self::Output, P2::Output) -> V,
+    >(
         self,
         p2: P2,
         f: F,
