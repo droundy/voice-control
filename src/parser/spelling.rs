@@ -118,4 +118,19 @@ fn test() {
             | nine
     "#]];
     e.assert_eq(&p.describe().to_string());
+
+    let e = expect_test::expect![[r#"
+        <control-key>
+
+        <control-key>: tab | escape | backspace | delete | left | right | up
+            | down | page up | page down | home | end
+    "#]];
+    e.assert_eq(&control_keys().describe().to_string());
+
+    let e = expect_test::expect![[r#"
+        <modifier>+
+
+        <modifier>: shift | alt | option | control | command | meta
+    "#]];
+    e.assert_eq(&modifiers().many1().describe().to_string());
 }
