@@ -79,22 +79,41 @@ pub fn modifiers() -> Parser<char> {
     )
 }
 
-pub fn control_keys() -> Parser<char> {
+pub fn arrow() -> Parser<char> {
     choose(
-        "<control-key>",
+        "<arrow>",
         vec![
-            "tab".into_parser().gives('\t'),
-            "escape".into_parser().gives('🄴'),
-            "backspace".into_parser().gives('⌫'),
-            "delete".into_parser().gives('⌦'),
             "left".into_parser().gives('←'),
             "right".into_parser().gives('→'),
             "up".into_parser().gives('↑'),
             "down".into_parser().gives('↓'),
+        ],
+    )
+}
+
+pub fn navigation() -> Parser<char> {
+    choose(
+        "<navigation-key>",
+        vec![
+            arrow(),
+            "tab".into_parser().gives('\t'),
             "page up".into_parser().gives('⬆'),
             "page down".into_parser().gives('⬇'),
             "home".into_parser().gives('⇱'),
             "end".into_parser().gives('⇲'),
+        ],
+    )
+}
+
+pub fn control_keys() -> Parser<char> {
+    choose(
+        "<control-key>",
+        vec![
+            arrow(),
+            navigation(),
+            "escape".into_parser().gives('🄴'),
+            "backspace".into_parser().gives('⌫'),
+            "delete".into_parser().gives('⌦'),
         ],
     )
 }
@@ -122,8 +141,9 @@ fn test() {
     let e = expect_test::expect![[r#"
         <control-key>
 
-        <control-key>: tab | escape | backspace | delete | left | right | up
-            | down | page up | page down | home | end
+        <control-key>: <arrow> | <navigation-key> | escape | backspace | delete
+        <arrow>: left | right | up | down
+        <navigation-key>: <arrow> | tab | page up | page down | home | end
     "#]];
     e.assert_eq(&control_keys().describe().to_string());
 
