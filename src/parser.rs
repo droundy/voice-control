@@ -89,6 +89,18 @@ pub trait IntoParser: Sized + IsParser + 'static {
         }
         .into_parser()
     }
+    fn then<P2: IntoParser>(self, p2: P2) -> Parser<P2::Output> {
+        self.join(p2, |_, v| v)
+    }
+    fn many1(self) -> Parser<Vec<Self::Output>> {
+        Many1(self.into_parser()).into_parser()
+    }
+    fn many0(self) -> Parser<Vec<Self::Output>> {
+        Many0(self.into_parser()).into_parser()
+    }
+    fn optional(self) -> Parser<Option<Self::Output>> {
+        Optional(self.into_parser()).into_parser()
+    }
 }
 impl<PP: IsParser + 'static> IntoParser for PP {}
 
@@ -232,12 +244,87 @@ impl<T: 'static> IsParser for Many1<T> {
     type Output = Vec<T>;
 
     fn parse<'a>(&self, input: &'a str) -> Result<(Self::Output, &'a str), Error> {
-        todo!()
+        let (first, mut input) = self.0.parse(input)?;
+        let mut output = vec![first];
+        loop {
+            match self.0.parse(input) {
+                Ok((v, rest)) => {
+                    output.push(v);
+                    input = rest;
+                    if input == "" {
+                        return Ok((output, input));
+                    }
+                }
+                Err(Error::Incomplete) => return Err(Error::Incomplete),
+                Err(Error::Wrong) => return Ok((output, input)),
+            }
+        }
     }
 
     fn describe(&self) -> Description {
         let mut d = self.0.describe();
-        d.command = format!("{}+", d.command);
+        if d.command.contains(' ') {
+            d.command = format!("({})+", d.command);
+        } else {
+            d.command = format!("{}+", d.command);
+        }
+        d
+    }
+}
+
+struct Many0<T>(Parser<T>);
+
+impl<T: 'static> IsParser for Many0<T> {
+    type Output = Vec<T>;
+
+    fn parse<'a>(&self, mut input: &'a str) -> Result<(Self::Output, &'a str), Error> {
+        let mut output = Vec::new();
+        loop {
+            match self.0.parse(input) {
+                Ok((v, rest)) => {
+                    output.push(v);
+                    input = rest;
+                    if input == "" {
+                        return Ok((output, input));
+                    }
+                }
+                Err(Error::Incomplete) => return Err(Error::Incomplete),
+                Err(Error::Wrong) => return Ok((output, input)),
+            }
+        }
+    }
+
+    fn describe(&self) -> Description {
+        let mut d = self.0.describe();
+        if d.command.contains(' ') {
+            d.command = format!("({})*", d.command);
+        } else {
+            d.command = format!("{}*", d.command);
+        }
+        d
+    }
+}
+
+struct Optional<T>(Parser<T>);
+
+impl<T: 'static> IsParser for Optional<T> {
+    type Output = Option<T>;
+
+    fn parse<'a>(&self, input: &'a str) -> Result<(Self::Output, &'a str), Error> {
+        match self.0.parse(input) {
+            Ok((v, rest)) => Ok((Some(v), rest)),
+            Err(Error::Incomplete) => Err(Error::Incomplete),
+            Err(Error::Wrong) => Ok((None, input)),
+        }
+    }
+
+    fn describe(&self) -> Description {
+        let mut d = self.0.describe();
+        if d.command.contains(' ') {
+            d.command = format!("({})?", d.command);
+        } else {
+            d.command = format!("{}?", d.command);
+        }
         d
     }
 }

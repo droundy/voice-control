@@ -1,3 +1,5 @@
+use std::vec;
+
 use super::*;
 
 pub fn nato() -> Parser<char> {
@@ -59,6 +61,40 @@ pub fn extended_nato() -> Parser<char> {
             nato(),
             ("big".into_parser() + nato()).map(|(_, c)| c.to_ascii_uppercase()),
             digit(),
+        ],
+    )
+}
+
+pub fn modifiers() -> Parser<char> {
+    choose(
+        "<modifier>",
+        vec![
+            "shift".into_parser().gives('🅂'),
+            "alt".into_parser().gives('🄰'),
+            "option".into_parser().gives('🄰'),
+            "control".into_parser().gives('🄲'),
+            "command".into_parser().gives('⌘'),
+            "meta".into_parser().gives('⌘'),
+        ],
+    )
+}
+
+pub fn control_keys() -> Parser<char> {
+    choose(
+        "<control-key>",
+        vec![
+            "tab".into_parser().gives('\t'),
+            "escape".into_parser().gives('🄴'),
+            "backspace".into_parser().gives('⌫'),
+            "delete".into_parser().gives('⌦'),
+            "left".into_parser().gives('←'),
+            "right".into_parser().gives('→'),
+            "up".into_parser().gives('↑'),
+            "down".into_parser().gives('↓'),
+            "page up".into_parser().gives('⬆'),
+            "page down".into_parser().gives('⬇'),
+            "home".into_parser().gives('⇱'),
+            "end".into_parser().gives('⇲'),
         ],
     )
 }

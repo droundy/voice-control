@@ -1,5 +1,7 @@
 use std::fmt::Debug;
 
+pub mod keys;
+
 pub struct Action {
     f: Box<dyn Fn() + Sync + Send>,
     name: String,
@@ -8,6 +10,13 @@ pub struct Action {
 impl Action {
     pub fn run(&self) {
         (self.f)()
+    }
+
+    pub fn new(name: String, f: impl 'static + Fn() + Sync + Send) -> Self {
+        Action {
+            f: Box::new(f),
+            name,
+        }
     }
 
     pub fn only_log(input: &str) -> Self {

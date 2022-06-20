@@ -166,8 +166,10 @@ pub fn voice_control(commands: impl Fn() -> Parser<Action>) {
     model
         .enable_callback_scorer(move |s| {
             if let Err(Error::Wrong) = model_commands.parse(s) {
+                // println!("      bad input {:?}", s);
                 -10.0
             } else {
+                // println!("      good input {:?}", s);
                 0.0
             }
         })
@@ -221,12 +223,18 @@ pub fn voice_control(commands: impl Fn() -> Parser<Action>) {
                         words
                     })
                     .collect();
-                println!(
-                    "{:?} exceeds {:?} by {:?}",
-                    phrases[0],
-                    phrases[1],
-                    scores[0] - scores[1]
-                );
+                if phrases.len() == 1 {
+                    if phrases[0] == "" {
+                        println!("You didn't say anything")
+                    }
+                } else {
+                    println!(
+                        "{:?} exceeds {:?} by {:?}",
+                        phrases[0],
+                        phrases[1],
+                        scores[0] - scores[1]
+                    );
+                }
                 if phrases[0] != "" {
                     match execute_commands.parse(&phrases[0]) {
                         Err(Error::Incomplete) => {
@@ -244,6 +252,7 @@ pub fn voice_control(commands: impl Fn() -> Parser<Action>) {
                         }
                     }
                 }
+
                 // for c in x.transcripts().iter() {
                 //     let action = execute_commands.parse(&words);
                 //     println!("{sc:7.2}: {words:?} {action:?}");
