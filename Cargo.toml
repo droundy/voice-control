@@ -12,6 +12,9 @@ cpal = "0.13.5"
 webrtc-vad = { git="https://github.com/andreytkachenko/webrtc-vad" } # "0.4.0"
 rdev = { git="https://github.com/TTWNO/rdev" } # "0.5.1"
 
+bincode = "1.3.3"
+hound = "3.4.0"
+
 [dev-dependencies]
 
 expect-test = "1.3.0"

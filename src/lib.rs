@@ -166,24 +166,29 @@ pub fn voice_control(commands: impl 'static + Fn() -> Parser<Action>) {
     ));
 
     let mut have_sound = false;
-    let mut collected_data: Vec<i16> = Vec::new();
+    let mut silence_check: Vec<i16> = Vec::new();
     let mut all_data: Vec<i16> = Vec::new();
+
+    let mut audio_sample = 0;
 
     println!("trying to get audio input...");
     get_audio_input_16kHz(move |data: &[i16]| {
-        collected_data.extend(data);
+        silence_check.extend(data);
         all_data.extend(data);
-        if collected_data.len() < 2 * VAD_SAMPLES as usize {
+        if silence_check.len() < 4 * VAD_SAMPLES as usize {
             return;
         }
         let mut vad = vad.lock().unwrap();
-        if collected_data
+        if silence_check
             .chunks_exact(VAD_SAMPLES as usize)
             .any(|data| vad.is_voice_segment(data).expect("wrong size data sample"))
         {
             have_sound = true;
         } else {
             if have_sound {
+                let fname = format!("audio/sample-{audio_sample:06}.wav");
+                save_data(fname.as_str(), &all_data);
+                audio_sample += 1;
                 if let Some(action) = recognize_commands(&all_data) {
                     action.run();
                 }
@@ -191,7 +196,7 @@ pub fn voice_control(commands: impl 'static + Fn() -> Parser<Action>) {
             have_sound = false;
             all_data.clear();
         }
-        collected_data.clear();
+        silence_check.clear();
     });
 }
 
@@ -273,4 +278,34 @@ pub fn load_voice_control(
             None
         }
     }
+}
+
+fn save_data(fname: &str, data: &[i16]) {
+    let spec = hound::WavSpec {
+        channels: 1,
+        sample_rate: REQUIRED_RATE.0,
+        bits_per_sample: 16,
+        sample_format: hound::SampleFormat::Int,
+    };
+    let mut writer = hound::WavWriter::create(fname, spec).unwrap();
+    let mut writer = writer.get_i16_writer(data.len() as u32);
+    for s in data.iter().copied() {
+        writer.write_sample(s);
+    }
+    writer.flush();
+}
+
+fn load_data(fname: &str) -> Vec<i16> {
+    let reader = hound::WavReader::open(fname).unwrap();
+    let len = reader.len();
+    println!("len is {len}");
+    reader.into_samples().map(|s| s.unwrap()).collect()
+}
+
+#[test]
+fn save_load() {
+    let data = (1..1000).collect::<Vec<_>>();
+    save_data("/tmp/testing.wav", &data);
+    let new_data = load_data("/tmp/testing.wav");
+    assert_eq!(data, new_data);
 }
