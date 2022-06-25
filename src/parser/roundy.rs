@@ -27,7 +27,9 @@ pub fn parser() -> Parser<Action> {
             spell,
             key_combo,
             navigation,
-            number().map(|n| Action::only_log(&format!("{n} blind mice!"))),
+            (number() + "blind mice").map(|(n, _)| Action::only_log(&format!("{n} blind mice!"))),
+            "testing testing testing"
+                .map(|_| Action::new("Testing!".to_string(), || println!("I am running a test!"))),
         ],
     )
 }
