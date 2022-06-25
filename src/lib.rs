@@ -306,7 +306,8 @@ fn load_data(fname: &str) -> Vec<i16> {
 #[test]
 fn save_load() {
     let data = (1..1000).collect::<Vec<_>>();
-    save_data("/tmp/testing.wav", &data);
-    let new_data = load_data("/tmp/testing.wav");
+    let tf = tempfile::NamedTempFile::new().unwrap().into_temp_path();
+    save_data(tf.to_str().unwrap(), &data);
+    let new_data = load_data(tf.to_str().unwrap());
     assert_eq!(data, new_data);
 }
