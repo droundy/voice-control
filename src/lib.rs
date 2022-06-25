@@ -210,7 +210,6 @@ pub fn voice_control(commands: impl Fn() -> Parser<Action>) {
                     .finish_stream_with_metadata(2)
                     .unwrap()
                     .to_owned();
-                println!("Here is what we have:");
                 let transcripts = x.transcripts();
                 let scores: Vec<f64> = transcripts.iter().map(|c| c.confidence()).collect();
                 let phrases: Vec<String> = transcripts
@@ -252,17 +251,6 @@ pub fn voice_control(commands: impl Fn() -> Parser<Action>) {
                         }
                     }
                 }
-
-                // for c in x.transcripts().iter() {
-                //     let action = execute_commands.parse(&words);
-                //     println!("{sc:7.2}: {words:?} {action:?}");
-                // }
-                // let mut words = &words[..];
-                // while let Some((a, rest)) = rules.lock().unwrap().parse(&words[..]) {
-                //     assert!(rest.len() < words.len());
-                //     words = rest;
-                //     a.run();
-                // }
             }
             have_sound = false;
         }
