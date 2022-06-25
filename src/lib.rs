@@ -162,7 +162,7 @@ pub fn voice_control(commands: impl 'static + Fn() -> Parser<Action>) {
 
     let vad = std::sync::Mutex::new(webrtc_vad::Vad::new_with_rate_and_mode(
         webrtc_vad::SampleRate::Rate16kHz,
-        webrtc_vad::VadMode::Quality,
+        webrtc_vad::VadMode::VeryAggressive,
     ));
 
     let mut have_sound = false;
@@ -174,7 +174,7 @@ pub fn voice_control(commands: impl 'static + Fn() -> Parser<Action>) {
     println!("trying to get audio input...");
     get_audio_input_16kHz(move |data: &[i16]| {
         silence_check.extend(data);
-        if silence_check.len() < 4 * VAD_SAMPLES as usize {
+        if silence_check.len() < 8 * VAD_SAMPLES as usize {
             return;
         }
         let mut vad = vad.lock().unwrap();
@@ -183,15 +183,29 @@ pub fn voice_control(commands: impl 'static + Fn() -> Parser<Action>) {
             .any(|data| vad.is_voice_segment(data).expect("wrong size data sample"))
         {
             all_data.extend(&silence_check);
+            println!("Found audio {} samples", all_data.len());
             have_sound = true;
         } else {
             if have_sound {
-                let fname = format!("audio/sample-{audio_sample:06}.wav");
+                // let fname = format!("audio/final-silence-{audio_sample:06}.wav");
+                // println!("Final silence {} samples as {fname}", silence_check.len());
+                // println!("final silence is {silence_check:?}");
+                // save_data(fname.as_str(), &silence_check);
+                // audio_sample += 1;
+                let fname = if let Some(action) = recognize_commands(&all_data) {
+                    action.run();
+                    format!("audio/{audio_sample:06}-run-{action:?}.wav")
+                } else {
+                    format!("audio/{audio_sample:06}-unrecognized.wav")
+                };
+                println!("Saving {} samples as {fname}", all_data.len());
                 save_data(fname.as_str(), &all_data);
                 audio_sample += 1;
-                if let Some(action) = recognize_commands(&all_data) {
-                    action.run();
-                }
+            } else {
+                // let fname = format!("audio/silence-{audio_sample:06}.wav");
+                // println!("Discarding {} samples as {fname}", silence_check.len());
+                // save_data(fname.as_str(), &silence_check);
+                // audio_sample += 1;
             }
             have_sound = false;
             all_data.clear();
