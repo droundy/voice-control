@@ -157,11 +157,52 @@ fn get_audio_input_16kHz<F: FnMut(&[i16]) + Send + 'static>(mut callback: F) -> 
     panic!("No supported audio config!");
 }
 
-pub fn voice_control(commands: impl Fn() -> Parser<Action>) {
+pub fn voice_control(commands: impl 'static + Fn() -> Parser<Action>) {
+    let recognize_commands = load_voice_control(commands);
+
+    let vad = std::sync::Mutex::new(webrtc_vad::Vad::new_with_rate_and_mode(
+        webrtc_vad::SampleRate::Rate16kHz,
+        webrtc_vad::VadMode::Quality,
+    ));
+
+    let mut have_sound = false;
+    let mut collected_data: Vec<i16> = Vec::new();
+    let mut all_data: Vec<i16> = Vec::new();
+
+    println!("trying to get audio input...");
+    get_audio_input_16kHz(move |data: &[i16]| {
+        collected_data.extend(data);
+        all_data.extend(data);
+        if collected_data.len() < 2 * VAD_SAMPLES as usize {
+            return;
+        }
+        let mut vad = vad.lock().unwrap();
+        if collected_data
+            .chunks_exact(VAD_SAMPLES as usize)
+            .any(|data| vad.is_voice_segment(data).expect("wrong size data sample"))
+        {
+            have_sound = true;
+        } else {
+            if have_sound {
+                if let Some(action) = recognize_commands(&all_data) {
+                    action.run();
+                }
+            }
+            have_sound = false;
+            all_data.clear();
+        }
+        collected_data.clear();
+    });
+}
+
+pub fn load_voice_control(
+    commands: impl Fn() -> Parser<Action>,
+) -> impl 'static + Fn(&[i16]) -> Option<Action> {
     let mut model = coqui_stt::Model::new("english/model.tflite").expect("unable to create model");
     model
         .enable_external_scorer("english/huge-vocabulary.scorer")
         .expect("unable to read scorer");
+    assert_eq!(model.get_sample_rate(), REQUIRED_RATE.0 as i32);
     let model_commands = commands();
     model
         .enable_callback_scorer(move |s| {
@@ -176,84 +217,60 @@ pub fn voice_control(commands: impl Fn() -> Parser<Action>) {
         .expect("unable to apply callback scorer");
     let model = Arc::new(model);
 
-    assert_eq!(model.get_sample_rate(), REQUIRED_RATE.0 as i32);
-    let vad = std::sync::Mutex::new(webrtc_vad::Vad::new_with_rate_and_mode(
-        webrtc_vad::SampleRate::Rate16kHz,
-        webrtc_vad::VadMode::Quality,
-    ));
-
-    let mut have_sound = false;
     let new_stream =
         move || coqui_stt::Stream::from_model(model.clone()).expect("unable to create stream?!");
-    let mut stream = new_stream();
-    let mut collected_data: Vec<i16> = Vec::new();
 
     let execute_commands = commands();
-    println!("trying to get audio input...");
-    get_audio_input_16kHz(move |data: &[i16]| {
+
+    move |data: &[i16]| -> Option<Action> {
+        let mut stream = new_stream();
         stream.feed_audio(data);
-        collected_data.extend(data);
-        if collected_data.len() < 2 * VAD_SAMPLES as usize {
-            return;
-        }
-        let mut vad = vad.lock().unwrap();
-        if collected_data
-            .chunks_exact(VAD_SAMPLES as usize)
-            .any(|data| vad.is_voice_segment(data).expect("wrong size data sample"))
-        {
-            stream.feed_audio(&collected_data);
-            have_sound = true;
-        } else {
-            if have_sound {
-                stream.feed_audio(&collected_data);
-                let x = std::mem::replace(&mut stream, new_stream())
-                    .finish_stream_with_metadata(2)
-                    .unwrap()
-                    .to_owned();
-                let transcripts = x.transcripts();
-                let scores: Vec<f64> = transcripts.iter().map(|c| c.confidence()).collect();
-                let phrases: Vec<String> = transcripts
-                    .iter()
-                    .map(|c| {
-                        let mut words = String::new();
-                        for w in c.tokens().iter().map(|t| &t.text) {
-                            words.push_str(w.as_ref());
-                        }
-                        words
-                    })
-                    .collect();
-                if phrases.len() == 1 {
-                    if phrases[0] == "" {
-                        println!("You didn't say anything")
-                    }
-                } else {
-                    println!(
-                        "{:?} exceeds {:?} by {:?}",
-                        phrases[0],
-                        phrases[1],
-                        scores[0] - scores[1]
-                    );
+        let x = stream.finish_stream_with_metadata(2).unwrap().to_owned();
+        let transcripts = x.transcripts();
+        let scores: Vec<f64> = transcripts.iter().map(|c| c.confidence()).collect();
+        let phrases: Vec<String> = transcripts
+            .iter()
+            .map(|c| {
+                let mut words = String::new();
+                for w in c.tokens().iter().map(|t| &t.text) {
+                    words.push_str(w.as_ref());
                 }
-                if phrases[0] != "" {
-                    match execute_commands.parse(&phrases[0]) {
-                        Err(Error::Incomplete) => {
-                            println!("    Maybe you didn't finish?");
-                        }
-                        Err(Error::Wrong) => {
-                            println!("    This is bogus!");
-                        }
-                        Ok((action, "")) => {
-                            println!("    Running action {action:?}");
-                            action.run();
-                        }
-                        Ok((action, remainder)) => {
-                            println!("    We had extra words: {remainder:?} after {action:?}");
-                        }
-                    }
+                words
+            })
+            .collect();
+        if phrases.len() == 1 {
+            if phrases[0] == "" {
+                println!("You didn't say anything")
+            }
+        } else {
+            println!(
+                "{:?} exceeds {:?} by {:?}",
+                phrases[0],
+                phrases[1],
+                scores[0] - scores[1]
+            );
+        }
+        if phrases[0] != "" {
+            match execute_commands.parse(&phrases[0]) {
+                Err(Error::Incomplete) => {
+                    println!("    Maybe you didn't finish?");
+                    None
+                }
+                Err(Error::Wrong) => {
+                    println!("    This is bogus!");
+                    None
+                }
+                Ok((action, "")) => {
+                    println!("    Running action {action:?}");
+                    Some(action)
+                }
+                Ok((action, remainder)) => {
+                    println!("    We had extra words: {remainder:?} after {action:?}");
+                    None
                 }
             }
-            have_sound = false;
+        } else {
+            None
         }
-        collected_data.clear();
-    });
+    }
 }
