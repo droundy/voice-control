@@ -174,7 +174,6 @@ pub fn voice_control(commands: impl 'static + Fn() -> Parser<Action>) {
     println!("trying to get audio input...");
     get_audio_input_16kHz(move |data: &[i16]| {
         silence_check.extend(data);
-        all_data.extend(data);
         if silence_check.len() < 4 * VAD_SAMPLES as usize {
             return;
         }
@@ -183,6 +182,7 @@ pub fn voice_control(commands: impl 'static + Fn() -> Parser<Action>) {
             .chunks_exact(VAD_SAMPLES as usize)
             .any(|data| vad.is_voice_segment(data).expect("wrong size data sample"))
         {
+            all_data.extend(&silence_check);
             have_sound = true;
         } else {
             if have_sound {
@@ -292,9 +292,10 @@ fn save_data(fname: &str, data: &[i16]) {
     for s in data.iter().copied() {
         writer.write_sample(s);
     }
-    writer.flush();
+    writer.flush().ok();
 }
 
+#[cfg(test)]
 fn load_data(fname: &str) -> Vec<i16> {
     let reader = hound::WavReader::open(fname).unwrap();
     let len = reader.len();
