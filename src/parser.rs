@@ -56,7 +56,9 @@ pub trait IsParser: Sync + Send {
 
 pub trait IntoParser: Sized + IsParser + 'static {
     fn into_parser(self) -> Parser<Self::Output> {
-        Parser(P::Raw(Arc::new(self)))
+        Parser {
+            inner: P::Raw(Arc::new(self)),
+        }
     }
 
     fn map<U: 'static, F: 'static + Sync + Send + Fn(Self::Output) -> U>(self, f: F) -> Parser<U> {
@@ -105,7 +107,9 @@ pub trait IntoParser: Sized + IsParser + 'static {
 impl<PP: IsParser + 'static> IntoParser for PP {}
 
 #[derive(Clone)]
-pub struct Parser<T>(P<T>);
+pub struct Parser<T> {
+    inner: P<T>,
+}
 #[derive(Clone)]
 enum P<T> {
     Raw(Arc<dyn IsParser<Output = T>>),
@@ -162,7 +166,7 @@ impl<T: 'static, U: 'static, V: 'static> IsParser for Join<T, U, V> {
 impl<T: 'static> IsParser for Parser<T> {
     type Output = T;
     fn parse<'a>(&self, input: &'a str) -> Result<(T, &'a str), Error> {
-        match &self.0 {
+        match &self.inner {
             P::Raw(p) => p.parse(input),
             P::Option { options, .. } => {
                 let mut e = Error::Wrong;
@@ -183,7 +187,7 @@ impl<T: 'static> IsParser for Parser<T> {
     }
 
     fn describe(&self) -> Description {
-        match &self.0 {
+        match &self.inner {
             P::Raw(p) => p.describe(),
             P::Option { name, options } => {
                 let mut commands = Vec::new();
@@ -210,10 +214,12 @@ impl<T: 'static> IsParser for Parser<T> {
 }
 
 pub fn choose<T, PP: IntoParser<Output = T>>(name: &str, options: Vec<PP>) -> Parser<T> {
-    Parser(P::Option {
-        name: name.to_string(),
-        options: options.into_iter().map(|p| p.into_parser()).collect(),
-    })
+    Parser {
+        inner: P::Option {
+            name: name.to_string(),
+            options: options.into_iter().map(|p| p.into_parser()).collect(),
+        },
+    }
 }
 
 impl IsParser for &'static str {

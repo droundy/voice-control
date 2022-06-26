@@ -170,9 +170,17 @@ pub fn voice_control(commands: impl 'static + Fn() -> Parser<Action>) {
     let mut all_data: Vec<i16> = Vec::new();
 
     let mut audio_sample = 0;
+    let mut total_seconds = 0.0;
+    let mut last_printed = 0.0;
 
     println!("trying to get audio input...");
     get_audio_input_16kHz(move |data: &[i16]| {
+        let frame = data.len() as f64 * (1.0 / REQUIRED_RATE.0 as f64);
+        total_seconds += frame;
+        if total_seconds > last_printed + 1.0 {
+            println!("It has been {total_seconds:.1} seconds in frames of {frame} seconds");
+            last_printed = total_seconds;
+        }
         silence_check.extend(data);
         if silence_check.len() < 8 * VAD_SAMPLES as usize {
             return;
@@ -257,34 +265,34 @@ pub fn load_voice_control(
                 words
             })
             .collect();
-        if phrases.len() == 1 {
-            if phrases[0] == "" {
-                println!("You didn't say anything")
-            }
-        } else {
-            println!(
-                "{:?} exceeds {:?} by {:?}",
-                phrases[0],
-                phrases[1],
-                scores[0] - scores[1]
-            );
-        }
+        // if phrases.len() == 1 {
+        //     if phrases[0] == "" {
+        //         println!("You didn't say anything")
+        //     }
+        // } else {
+        //     println!(
+        //         "{:?} exceeds {:?} by {:?}",
+        //         phrases[0],
+        //         phrases[1],
+        //         scores[0] - scores[1]
+        //     );
+        // }
         if phrases[0] != "" {
             match execute_commands.parse(&phrases[0]) {
                 Err(Error::Incomplete) => {
-                    println!("    Maybe you didn't finish?");
+                    // println!("    Maybe you didn't finish?");
                     None
                 }
                 Err(Error::Wrong) => {
-                    println!("    This is bogus!");
+                    // println!("    This is bogus!");
                     None
                 }
                 Ok((action, "")) => {
-                    println!("    Running action {action:?}");
+                    // println!("    Running action {action:?}");
                     Some(action)
                 }
                 Ok((action, remainder)) => {
-                    println!("    We had extra words: {remainder:?} after {action:?}");
+                    // println!("    We had extra words: {remainder:?} after {action:?}");
                     None
                 }
             }
@@ -309,11 +317,11 @@ fn save_data(fname: &str, data: &[i16]) {
     writer.flush().ok();
 }
 
-#[cfg(test)]
-fn load_data(fname: &str) -> Vec<i16> {
+/// Only intended for testing/benchmarking
+#[doc(hidden)]
+pub fn load_data(fname: &str) -> Vec<i16> {
     let reader = hound::WavReader::open(fname).unwrap();
     let len = reader.len();
-    println!("len is {len}");
     reader.into_samples().map(|s| s.unwrap()).collect()
 }
 
