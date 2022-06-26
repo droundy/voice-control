@@ -325,3 +325,38 @@ fn save_load() {
     let new_data = load_data(tf.to_str().unwrap());
     assert_eq!(data, new_data);
 }
+
+#[test]
+fn recognize_testing() {
+    use parser::IntoParser;
+
+    let parser = || {
+        "testing".map(|_| Action::new("Testing!".to_string(), || println!("I am running a test!")))
+    };
+    let recognizer = load_voice_control(parser);
+    let sound = load_data("test-audio/testing.wav");
+    let result = recognizer(&sound);
+    println!("Result is {result:?}");
+    assert!(result.is_some());
+    assert_eq!(format!("{result:?}"), r#"Some("Testing!")"#.to_string());
+
+    let parser = || {
+        parser::choose(
+            "command",
+            vec![
+                parser::number::number().map(move |n| {
+                    Action::new("{n} blind mice".to_string(), move || println!("I see {n}"))
+                }),
+                "testing".map(|_| {
+                    Action::new("Testing!".to_string(), || println!("I am running a test!"))
+                }),
+            ],
+        )
+    };
+    let recognizer = load_voice_control(parser);
+    let sound = load_data("test-audio/testing.wav");
+    let result = recognizer(&sound);
+    println!("Result is {result:?}");
+    assert!(result.is_some());
+    assert_eq!(format!("{result:?}"), r#"Some("Testing!")"#.to_string());
+}
