@@ -1,6 +1,6 @@
 use voice_control::desktop_control::Action;
 use voice_control::load_voice_control;
-use voice_control::parser::{choose, number::number, IntoParser, Parser};
+use voice_control::parser::{choose, number::digit, number::number, IntoParser, Parser};
 use voice_control::parser::{roundy, IsParser};
 
 fn parse_testing() -> Parser<Action> {
@@ -19,6 +19,10 @@ fn parse_testing_mice() -> Parser<Action> {
             }),
         ],
     )
+}
+
+fn parse_digit() -> Parser<Action> {
+    digit().map(move |n| Action::new("{n} blind mice".to_string(), move || println!("I see {n}")))
 }
 
 fn parse_mice_testing() -> Parser<Action> {
@@ -55,14 +59,24 @@ fn bench_parse(text: &str, name: &str, parser: impl Fn() -> Parser<Action>) {
 }
 
 fn main() {
-    for text in ["testing testing testing", "testing", "four", "bogus"] {
+    for text in [
+        "t",
+        "te",
+        "g",
+        "testing testing testing",
+        "testing",
+        "four",
+        "bogus",
+    ] {
         println!("{text}:");
         bench_parse(text, "testing", parse_testing);
+        bench_parse(text, "digit", parse_digit);
         bench_parse(text, "mice", parse_mice);
         bench_parse(text, "testing_mice", parse_testing_mice);
         bench_parse(text, "mice_testing", parse_mice_testing);
         bench_parse(text, "roundy", roundy::parser);
     }
+    return;
 
     for audio in [
         "testing-testing-testing",

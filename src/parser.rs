@@ -1,13 +1,35 @@
-use std::sync::Arc;
+use std::{
+    collections::{HashMap, HashSet},
+    sync::Arc,
+};
 
 pub mod number;
 pub mod roundy;
 pub mod spelling;
 
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Debug, PartialEq, Eq, Clone)]
 pub enum Error {
     Incomplete,
     Wrong,
+}
+
+pub struct Packrat {
+    failures: Vec<HashMap<String, Error>>,
+}
+impl Packrat {
+    fn check(&self, name: &str, input: &str) -> Result<(), Error> {
+        if self.failures.len() > input.len() {
+            if let Some(e) = self.failures[input.len()].get(name) {
+                return Err(e.clone());
+            }
+        }
+        Ok(())
+    }
+    fn report(&mut self, name: &str, input: &str, e: Error) {
+        if self.failures.len() > input.len() {
+            self.failures[input.len()].insert(name.to_string(), e);
+        }
+    }
 }
 
 #[derive(Debug)]
@@ -51,6 +73,12 @@ pub trait IsParser: Sync + Send {
         }
     }
 
+    fn parse_with_packrat<'a>(
+        &self,
+        input: &'a str,
+        packrat: &mut Packrat,
+    ) -> Result<(Self::Output, &'a str), Error>;
+
     fn describe(&self) -> Description;
 }
 
@@ -58,6 +86,7 @@ pub trait IntoParser: Sized + IsParser + 'static {
     fn into_parser(self) -> Parser<Self::Output> {
         Parser {
             inner: P::Raw(Arc::new(self)),
+            invalid_cache: HashSet::new(),
         }
     }
 
@@ -109,11 +138,12 @@ impl<PP: IsParser + 'static> IntoParser for PP {}
 #[derive(Clone)]
 pub struct Parser<T> {
     inner: P<T>,
+    invalid_cache: HashSet<String>,
 }
 #[derive(Clone)]
 enum P<T> {
     Raw(Arc<dyn IsParser<Output = T>>),
-    Option {
+    Choose {
         name: String,
         options: Vec<Parser<T>>,
     },
@@ -131,6 +161,16 @@ impl<T: 'static, U: 'static> IsParser for Map<T, U> {
             .map(|(v, rest)| ((self.f)(v), rest))
     }
 
+    fn parse_with_packrat<'a>(
+        &self,
+        input: &'a str,
+        packrat: &mut Packrat,
+    ) -> Result<(Self::Output, &'a str), Error> {
+        self.parser
+            .parse_with_packrat(input, packrat)
+            .map(|(v, rest)| ((self.f)(v), rest))
+    }
+
     fn describe(&self) -> Description {
         self.parser.describe()
     }
@@ -145,6 +185,16 @@ impl<T: 'static, U: 'static, V: 'static> IsParser for Join<T, U, V> {
     fn parse<'a>(&self, input: &'a str) -> Result<(V, &'a str), Error> {
         let (v1, input) = self.parser1.parse(input)?;
         let (v2, rest) = self.parser2.parse(input)?;
+        Ok(((self.join)(v1, v2), rest))
+    }
+
+    fn parse_with_packrat<'a>(
+        &self,
+        input: &'a str,
+        packrat: &mut Packrat,
+    ) -> Result<(Self::Output, &'a str), Error> {
+        let (v1, input) = self.parser1.parse_with_packrat(input, packrat)?;
+        let (v2, rest) = self.parser2.parse_with_packrat(input, packrat)?;
         Ok(((self.join)(v1, v2), rest))
     }
 
@@ -166,12 +216,15 @@ impl<T: 'static, U: 'static, V: 'static> IsParser for Join<T, U, V> {
 impl<T: 'static> IsParser for Parser<T> {
     type Output = T;
     fn parse<'a>(&self, input: &'a str) -> Result<(T, &'a str), Error> {
+        let mut packrat = Packrat {
+            failures: vec![HashMap::new(); input.len()],
+        };
         match &self.inner {
-            P::Raw(p) => p.parse(input),
-            P::Option { options, .. } => {
+            P::Raw(p) => p.parse_with_packrat(input, &mut packrat),
+            P::Choose { options, .. } => {
                 let mut e = Error::Wrong;
                 for parser in options.iter() {
-                    match parser.parse(input) {
+                    match parser.parse_with_packrat(input, &mut packrat) {
                         Ok(v) => {
                             return Ok(v);
                         }
@@ -186,10 +239,37 @@ impl<T: 'static> IsParser for Parser<T> {
         }
     }
 
+    fn parse_with_packrat<'a>(
+        &self,
+        input: &'a str,
+        packrat: &mut Packrat,
+    ) -> Result<(Self::Output, &'a str), Error> {
+        match &self.inner {
+            P::Raw(p) => p.parse_with_packrat(input, packrat),
+            P::Choose { options, name } => {
+                packrat.check(name.as_str(), input)?;
+                let mut e = Error::Wrong;
+                for parser in options.iter() {
+                    match parser.parse_with_packrat(input, packrat) {
+                        Ok(v) => {
+                            return Ok(v);
+                        }
+                        Err(Error::Incomplete) => {
+                            e = Error::Incomplete;
+                        }
+                        Err(Error::Wrong) => (),
+                    }
+                }
+                packrat.report(&name, input, e.clone());
+                Err(e)
+            }
+        }
+    }
+
     fn describe(&self) -> Description {
         match &self.inner {
             P::Raw(p) => p.describe(),
-            P::Option { name, options } => {
+            P::Choose { name, options } => {
                 let mut commands = Vec::new();
                 let mut other_patterns = Vec::new();
                 for parser in options.iter() {
@@ -215,10 +295,11 @@ impl<T: 'static> IsParser for Parser<T> {
 
 pub fn choose<T, PP: IntoParser<Output = T>>(name: &str, options: Vec<PP>) -> Parser<T> {
     Parser {
-        inner: P::Option {
+        inner: P::Choose {
             name: name.to_string(),
             options: options.into_iter().map(|p| p.into_parser()).collect(),
         },
+        invalid_cache: HashSet::new(),
     }
 }
 
@@ -236,9 +317,58 @@ impl IsParser for &'static str {
             Err(Error::Wrong)
         }
     }
+    fn parse_with_packrat<'a>(
+        &self,
+        input: &'a str,
+        _packrat: &mut Packrat,
+    ) -> Result<(Self::Output, &'a str), Error> {
+        match input.len().cmp(&self.len()) {
+            std::cmp::Ordering::Equal => {
+                if input == *self {
+                    Ok((*self, ""))
+                } else {
+                    Err(Error::Wrong)
+                }
+            }
+            std::cmp::Ordering::Less => {
+                if self.starts_with(input) {
+                    Err(Error::Incomplete)
+                } else {
+                    Err(Error::Wrong)
+                }
+            }
+            std::cmp::Ordering::Greater => {
+                if input.starts_with(*self) && input.as_bytes()[self.len()] == b' ' {
+                    Ok((*self, &input[self.len() + 1..]))
+                } else {
+                    Err(Error::Wrong)
+                }
+            }
+        }
+    }
     fn describe(&self) -> Description {
         Description {
             command: self.to_string(),
+            patterns: Vec::new(),
+        }
+    }
+}
+
+impl IsParser for () {
+    type Output = ();
+    fn parse<'a>(&self, input: &'a str) -> Result<(Self::Output, &'a str), Error> {
+        Ok(((), input))
+    }
+    fn parse_with_packrat<'a>(
+        &self,
+        input: &'a str,
+        _packrat: &mut Packrat,
+    ) -> Result<(Self::Output, &'a str), Error> {
+        Ok(((), input))
+    }
+    fn describe(&self) -> Description {
+        Description {
+            command: "".to_string(),
             patterns: Vec::new(),
         }
     }
@@ -254,6 +384,28 @@ impl<T: 'static> IsParser for Many1<T> {
         let mut output = vec![first];
         loop {
             match self.0.parse(input) {
+                Ok((v, rest)) => {
+                    output.push(v);
+                    input = rest;
+                    if input == "" {
+                        return Ok((output, input));
+                    }
+                }
+                Err(Error::Incomplete) => return Err(Error::Incomplete),
+                Err(Error::Wrong) => return Ok((output, input)),
+            }
+        }
+    }
+
+    fn parse_with_packrat<'a>(
+        &self,
+        input: &'a str,
+        packrat: &mut Packrat,
+    ) -> Result<(Self::Output, &'a str), Error> {
+        let (first, mut input) = self.0.parse_with_packrat(input, packrat)?;
+        let mut output = vec![first];
+        loop {
+            match self.0.parse_with_packrat(input, packrat) {
                 Ok((v, rest)) => {
                     output.push(v);
                     input = rest;
@@ -300,6 +452,27 @@ impl<T: 'static> IsParser for Many0<T> {
         }
     }
 
+    fn parse_with_packrat<'a>(
+        &self,
+        mut input: &'a str,
+        packrat: &mut Packrat,
+    ) -> Result<(Self::Output, &'a str), Error> {
+        let mut output = Vec::new();
+        loop {
+            match self.0.parse_with_packrat(input, packrat) {
+                Ok((v, rest)) => {
+                    output.push(v);
+                    input = rest;
+                    if input == "" {
+                        return Ok((output, input));
+                    }
+                }
+                Err(Error::Incomplete) => return Err(Error::Incomplete),
+                Err(Error::Wrong) => return Ok((output, input)),
+            }
+        }
+    }
+
     fn describe(&self) -> Description {
         let mut d = self.0.describe();
         if d.command.contains(' ') {
@@ -318,6 +491,18 @@ impl<T: 'static> IsParser for Optional<T> {
 
     fn parse<'a>(&self, input: &'a str) -> Result<(Self::Output, &'a str), Error> {
         match self.0.parse(input) {
+            Ok((v, rest)) => Ok((Some(v), rest)),
+            Err(Error::Incomplete) => Err(Error::Incomplete),
+            Err(Error::Wrong) => Ok((None, input)),
+        }
+    }
+
+    fn parse_with_packrat<'a>(
+        &self,
+        input: &'a str,
+        rat: &mut Packrat,
+    ) -> Result<(Self::Output, &'a str), Error> {
+        match self.0.parse_with_packrat(input, rat) {
             Ok((v, rest)) => Ok((Some(v), rest)),
             Err(Error::Incomplete) => Err(Error::Incomplete),
             Err(Error::Wrong) => Ok((None, input)),
