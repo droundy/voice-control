@@ -154,9 +154,11 @@ pub fn number_range(mut min: usize, mut max: usize) -> Parser<usize> {
     choose(&format!("<{min}-{max}>"), choices)
 }
 
-// impl IsParser for Range<usize> {
-
-// }
+impl From<Range<usize>> for Parser<usize> {
+    fn from(range: Range<usize>) -> Self {
+        number_range(range.start, range.end + 1)
+    }
+}
 
 #[test]
 fn test_number_range() {

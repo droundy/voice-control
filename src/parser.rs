@@ -80,6 +80,16 @@ pub trait IsParser: Sync + Send {
     ) -> Result<(Self::Output, &'a str), Error>;
 
     fn describe(&self) -> Description;
+
+    /// Returns the state for any following parse
+    fn encode(&self, dfa: &mut DFA, encoding: Encoding) -> usize;
+}
+
+#[derive(Copy, Clone)]
+pub struct Encoding {
+    starting_state: usize,
+    ending_state: Option<usize>,
+    toplevel: bool,
 }
 
 pub trait IntoParser: Sized + IsParser + 'static {
@@ -174,6 +184,10 @@ impl<T: 'static, U: 'static> IsParser for Map<T, U> {
     fn describe(&self) -> Description {
         self.parser.describe()
     }
+
+    fn encode(&self, dfa: &mut DFA, encoding: Encoding) -> usize {
+        self.parser.encode(dfa, encoding)
+    }
 }
 struct Join<T, U, V> {
     parser1: Parser<T>,
@@ -210,6 +224,19 @@ impl<T: 'static, U: 'static, V: 'static> IsParser for Join<T, U, V> {
             .collect();
         d.patterns.extend(new_patterns);
         d
+    }
+
+    fn encode(&self, dfa: &mut DFA, encoding: Encoding) -> usize {
+        let first = Encoding {
+            toplevel: false,
+            ending_state: None,
+            ..encoding
+        };
+        let second = Encoding {
+            starting_state: self.parser1.encode(dfa, first),
+            ..encoding
+        };
+        self.parser2.encode(dfa, second)
     }
 }
 
@@ -291,6 +318,23 @@ impl<T: 'static> IsParser for Parser<T> {
             }
         }
     }
+
+    fn encode(&self, dfa: &mut DFA, mut encoding: Encoding) -> usize {
+        match &self.inner {
+            P::Raw(p) => p.encode(dfa, encoding),
+            P::Choose { options, .. } => {
+                assert!(!options.is_empty());
+                for o in options {
+                    let ending = o.encode(dfa, encoding);
+                    if encoding.ending_state.is_none() {
+                        println!("setting ending to {ending}");
+                        encoding.ending_state = Some(ending);
+                    }
+                }
+                encoding.ending_state.expect("choose must have one ending")
+            }
+        }
+    }
 }
 
 pub fn choose<T, PP: IntoParser<Output = T>>(name: &str, options: Vec<PP>) -> Parser<T> {
@@ -352,6 +396,43 @@ impl IsParser for &'static str {
             patterns: Vec::new(),
         }
     }
+
+    fn encode(&self, dfa: &mut DFA, encoding: Encoding) -> usize {
+        let mut current_state = encoding.starting_state;
+        for b in self.as_bytes().iter().copied() {
+            let index = charnum(b);
+            let next = dfa.states[current_state].next[index];
+            if next < dfa.states.len() {
+                current_state = next;
+            } else {
+                let next = dfa.states.len();
+                dfa.states[current_state].next[index] = next;
+                current_state = next;
+                dfa.states.push(State::default())
+            }
+        }
+        if encoding.toplevel {
+            dfa.states[current_state].complete = true;
+        }
+        // Now add a space before the next string
+        let index = charnum(b' ');
+        let next = dfa.states[current_state].next[index];
+        if next > dfa.states.len() {
+            let next = if let Some(ending) = encoding.ending_state {
+                ending
+            } else {
+                dfa.states.push(State::default());
+                dfa.states.len() - 1
+            };
+            dfa.states[current_state].next[index] = next;
+            current_state = next;
+        } else {
+            // FIXME We need to rewrite our ending state, this is going to be more complicated!
+            assert!(encoding.ending_state.is_none());
+            current_state = next;
+        }
+        current_state
+    }
 }
 
 impl IsParser for () {
@@ -371,6 +452,11 @@ impl IsParser for () {
             command: "".to_string(),
             patterns: Vec::new(),
         }
+    }
+
+    fn encode(&self, dfa: &mut DFA, encoding: Encoding) -> usize {
+        assert!(encoding.ending_state.is_none());
+        encoding.starting_state
     }
 }
 
@@ -428,6 +514,10 @@ impl<T: 'static> IsParser for Many1<T> {
         }
         d
     }
+
+    fn encode(&self, dfa: &mut DFA, encoding: Encoding) -> usize {
+        unimplemented!()
+    }
 }
 
 struct Many0<T>(Parser<T>);
@@ -482,6 +572,10 @@ impl<T: 'static> IsParser for Many0<T> {
         }
         d
     }
+
+    fn encode(&self, dfa: &mut DFA, encoding: Encoding) -> usize {
+        unimplemented!()
+    }
 }
 
 struct Optional<T>(Parser<T>);
@@ -517,6 +611,10 @@ impl<T: 'static> IsParser for Optional<T> {
             d.command = format!("{}?", d.command);
         }
         d
+    }
+
+    fn encode(&self, dfa: &mut DFA, encoding: Encoding) -> usize {
+        unimplemented!()
     }
 }
 
@@ -631,3 +729,164 @@ fn test_baby_actions() {
 //         }
 //     }
 // }
+
+fn charnum(c: u8) -> usize {
+    match c {
+        b' ' => 26,
+        c if c >= b'a' && c <= b'z' => (c - b'a') as usize,
+        _ => panic!("unsupported character {:?}", c as char),
+    }
+}
+fn numchar(n: usize) -> char {
+    match n {
+        26 => ' ',
+        n if n < 26 => (b'a' + n as u8) as char,
+        _ => panic!("unsupported character"),
+    }
+}
+
+struct State {
+    /// The pattern could end here with this prefix.
+    complete: bool,
+    next: [usize; 27],
+    breadcrumbs: Vec<(Vec<u8>, Vec<u8>)>,
+}
+impl Default for State {
+    fn default() -> Self {
+        State {
+            complete: false,
+            next: [usize::MAX; 27],
+            breadcrumbs: Vec::new(),
+        }
+    }
+}
+impl std::fmt::Debug for State {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        if self.breadcrumbs.is_empty() {
+            if self.complete {
+                f.write_str("C")?;
+            } else {
+                f.write_str(" ")?;
+            }
+            for (which, n) in self.next.iter().copied().enumerate() {
+                let c = numchar(which);
+                if n < usize::MAX {
+                    write!(f, " {c:?} -> {n}")?;
+                }
+            }
+        }
+        Ok(())
+    }
+}
+impl std::fmt::Debug for DFA {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        for (n, state) in self.states.iter().enumerate() {
+            write!(f, "\n  {n}: {state:?}")?;
+        }
+        Ok(())
+    }
+}
+impl Default for DFA {
+    fn default() -> Self {
+        DFA {
+            states: vec![State::default()],
+        }
+    }
+}
+
+pub struct DFA {
+    // TODO: split state so we can have `next` be more memory compact for faster checking.
+    states: Vec<State>,
+}
+
+impl DFA {
+    pub fn check(&self, input: &str) -> Result<(), Error> {
+        let mut current_state = 0;
+        for b in input.as_bytes().iter().copied() {
+            current_state = self.states[current_state].next[charnum(b)];
+            if current_state >= self.states.len() {
+                return Err(Error::Wrong);
+            }
+        }
+        if self.states[current_state].complete {
+            Ok(())
+        } else {
+            Err(Error::Incomplete)
+        }
+    }
+
+    fn encode<P: IsParser>(&mut self, parser: P) -> usize {
+        let encoding = Encoding {
+            starting_state: 0,
+            toplevel: true,
+            ending_state: None,
+        };
+        parser.encode(self, encoding)
+    }
+}
+
+#[test]
+fn checking() {
+    let mut dfa = DFA::default();
+    println!("Empty dfa: {dfa:?}");
+    dfa.encode("hello");
+    println!("Full dfa: {dfa:?}");
+    assert!(dfa.check("hello").is_ok());
+    assert_eq!(Err(Error::Incomplete), dfa.check("hell"));
+    assert_eq!(Err(Error::Incomplete), dfa.check("hello "));
+    assert_eq!(Err(Error::Wrong), dfa.check("hello world"));
+
+    println!("\nMoving on to hello world");
+    let mut dfa = DFA::default();
+    dfa.encode("hello".map(|a| a) + "world");
+    println!("Full dfa: {dfa:?}");
+    assert!(dfa.check("hello world").is_ok());
+    assert_eq!(Err(Error::Incomplete), dfa.check("hell"));
+    assert_eq!(Err(Error::Incomplete), dfa.check("hello "));
+    assert_eq!(Err(Error::Wrong), dfa.check("goodbye "));
+    assert_eq!(Err(Error::Wrong), dfa.check("hello world i am david"));
+
+    println!("\nMoving on to choose");
+    let mut dfa = DFA::default();
+    dfa.encode(choose("<food>", vec!["broccoli", "kale", "spinach"]));
+    println!("Full dfa: {dfa:?}");
+    assert!(dfa.check("broccoli").is_ok());
+    assert_eq!(Err(Error::Incomplete), dfa.check("kal"));
+    assert_eq!(Err(Error::Incomplete), dfa.check("spinach "));
+    assert_eq!(Err(Error::Wrong), dfa.check("goodbye "));
+    assert_eq!(Err(Error::Wrong), dfa.check("kale i am david"));
+
+    println!("\nMoving on to choose in sequence");
+    let mut dfa = DFA::default();
+    dfa.encode(
+        "eat".gives(0) + choose("<food>", vec!["broccoli", "kale", "spinach"]) + "every day",
+    );
+    println!("Full dfa: {dfa:?}");
+    assert!(dfa.check("eat broccoli every day").is_ok());
+    assert_eq!(Err(Error::Incomplete), dfa.check("eat broccoli"));
+    assert_eq!(Err(Error::Incomplete), dfa.check("eat"));
+    assert_eq!(Err(Error::Incomplete), dfa.check("eat spi"));
+    assert_eq!(Err(Error::Incomplete), dfa.check("eat kale ev"));
+    assert_eq!(Err(Error::Wrong), dfa.check("eat candy every day"));
+
+    // println!("\nMoving on to choose in parallel");
+    // let mut dfa = DFA::default();
+    // dfa.encode(
+    //     choose(
+    //         "<healthy activity>",
+    //         vec![
+    //             "eat broccoli and kale and exercize".gives((1, "everything")),
+    //             "eat".gives(0) + choose("<food>", vec!["broccoli", "kale", "spinach"]),
+    //             "exercize".gives((1, "workout")),
+    //         ],
+    //     ) + "every day",
+    // );
+    // println!("Full dfa: {dfa:?}");
+    // assert!(dfa.check("eat broccoli every day").is_ok());
+    // assert!(dfa.check("exercize every day").is_ok());
+    // assert_eq!(Err(Error::Incomplete), dfa.check("eat broccoli"));
+    // assert_eq!(Err(Error::Incomplete), dfa.check("eat"));
+    // assert_eq!(Err(Error::Incomplete), dfa.check("eat spi"));
+    // assert_eq!(Err(Error::Incomplete), dfa.check("eat kale ev"));
+    // assert_eq!(Err(Error::Wrong), dfa.check("eat candy every day"));
+}
