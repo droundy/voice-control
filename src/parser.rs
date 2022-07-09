@@ -975,4 +975,14 @@ fn checking() {
     assert_eq!(Err(Error::Incomplete), dfa.check("fa "));
     assert_eq!(Err(Error::Incomplete), dfa.check("fa la l"));
     assert_eq!(Err(Error::Wrong), dfa.check("fa la fa"));
+
+    println!("\nMoving on to repeat of a choose");
+    let dfa = DFA::encode(choose("<note>", vec!["fa", "so", "la", "mi"]).many0());
+    println!("Full dfa: {dfa:?}");
+    assert!(dfa.check("fa la la la la").is_ok());
+    assert!(dfa.check("fa").is_ok());
+    assert_eq!(Err(Error::Incomplete), dfa.check("fa la "));
+    assert_eq!(Err(Error::Incomplete), dfa.check("fa "));
+    assert_eq!(Err(Error::Incomplete), dfa.check("fa la l"));
+    assert_eq!(Err(Error::Wrong), dfa.check("fa la fa"));
 }
