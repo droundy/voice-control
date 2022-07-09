@@ -728,74 +728,6 @@ fn test_baby_actions() {
     assert_eq!(Err(Error::Wrong), p.parse("pee"));
 }
 
-// pub struct Parser<T> {
-//     parse: Box<dyn FnMut(&str) -> Result<(T, &str), Error>>,
-// }
-
-// impl<T: 'static> Parser<T> {
-//     pub fn and_then<U: 'static>(mut self, mut next: Box<dyn FnMut(T) -> Parser<U>>) -> Parser<U> {
-//         Parser {
-//             parse: Box::new(move |input| {
-//                 let (val, rest) = (self.parse)(input)?;
-//                 let mut parser = next(val);
-//                 (parser.parse)(rest)
-//             }),
-//         }
-//     }
-// }
-
-// pub fn choose<T: 'static>(mut options: Vec<Parser<T>>) -> Parser<T> {
-//     Parser {
-//         parse: Box::new(move |input| {
-//             for parser in options.iter_mut() {
-//                 match (parser.parse)(input) {
-//                     Ok(v) => {
-//                         return Ok(v);
-//                     }
-//                     Err(Error::Incomplete) => {
-//                         return Err(Error::Incomplete);
-//                     }
-//                     Err(Error::Wrong) => (),
-//                 }
-//             }
-//             Err(Error::Wrong)
-//         }),
-//     }
-// }
-
-// impl From<&'static str> for Parser<&'static str> {
-//     fn from(tag: &'static str) -> Self {
-//         let tag_space = format!("{} ", tag);
-//         Parser {
-//             parse: Box::new(move |input| {
-//                 if input == tag {
-//                     Ok((tag, ""))
-//                 } else if input.starts_with(&tag_space) {
-//                     Ok((tag, &input[tag_space.len()..]))
-//                 } else if tag.starts_with(input) {
-//                     Err(Error::Incomplete)
-//                 } else {
-//                     Err(Error::Wrong)
-//                 }
-//             }),
-//         }
-//     }
-// }
-
-// impl Parser for &'static str {
-//     type Output = &'static str;
-
-//     fn parse<'a>(&self, input: &'a str) -> Result<(Self::Output, &'a str), Error> {
-//         if input.starts_with(*self) {
-//             Ok((*self, &input[self.len()..]))
-//         } else if self.starts_with(input) {
-//             Err(Error::Incomplete)
-//         } else {
-//             Err(Error::Wrong)
-//         }
-//     }
-// }
-
 fn charnum(c: u8) -> usize {
     match c {
         b' ' => 26,
@@ -979,7 +911,7 @@ fn checking() {
     println!("\nMoving on to repeat of a choose");
     let dfa = DFA::encode(choose("<note>", vec!["fa", "so", "la", "mi"]).many0());
     println!("Full dfa: {dfa:?}");
-    assert!(dfa.check("fa la la la la").is_ok());
+    assert!(dfa.check("fa la so la la").is_ok());
     assert!(dfa.check("fa").is_ok());
     assert_eq!(Err(Error::Incomplete), dfa.check("fa la "));
     assert_eq!(Err(Error::Incomplete), dfa.check("fa "));
