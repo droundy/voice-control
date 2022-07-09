@@ -83,6 +83,10 @@ pub trait IsParser: Sync + Send {
 
     fn describe(&self) -> Description;
 
+    fn could_be_empty(&self) -> bool {
+        false
+    }
+
     /// Returns the state for any following parse
     fn encode(&self, dfa: &mut DFA, encoding: Encoding) -> SetUsize;
 }
@@ -228,29 +232,38 @@ impl<T: 'static, U: 'static, V: 'static> IsParser for Join<T, U, V> {
 
     fn encode(&self, dfa: &mut DFA, encoding: Encoding) -> SetUsize {
         let first = Encoding { ..encoding };
-        // Require a ' ' before the next pattern.
         let current_states = self.parser1.encode(dfa, first);
-        let index = charnum(b' ');
-        let mut new_current_state = SetUsize::new();
-        let next_available = dfa.states.len();
-        for current_state in current_states {
-            let next = dfa.states[current_state].next[index];
-            if next < dfa.states.len() {
-                new_current_state.insert(next);
-            } else {
-                dfa.states[current_state].next[index] = next_available;
-                new_current_state.insert(next_available);
-                if dfa.states.len() == next_available {
-                    dfa.states.push(State::default());
+        if self.parser2.could_be_empty() {
+            println!("I AM SKIPPING NO SPACE");
+            let second = Encoding {
+                starting_state: current_states,
+                ..encoding
+            };
+            self.parser2.encode(dfa, second)
+        } else {
+            // Require a ' ' before the next pattern, unless the next parser could be empty.
+            let index = charnum(b' ');
+            let mut new_current_state = SetUsize::new();
+            let next_available = dfa.states.len();
+            for current_state in current_states {
+                let next = dfa.states[current_state].next[index];
+                if next < dfa.states.len() {
+                    new_current_state.insert(next);
+                } else {
+                    dfa.states[current_state].next[index] = next_available;
+                    new_current_state.insert(next_available);
+                    if dfa.states.len() == next_available {
+                        dfa.states.push(State::default());
+                    }
                 }
             }
+            // Now encode the second parser
+            let second = Encoding {
+                starting_state: new_current_state,
+                ..encoding
+            };
+            self.parser2.encode(dfa, second)
         }
-        // Now encode the second parser
-        let second = Encoding {
-            starting_state: new_current_state,
-            ..encoding
-        };
-        self.parser2.encode(dfa, second)
     }
 }
 
@@ -277,6 +290,13 @@ impl<T: 'static> IsParser for Parser<T> {
                 }
                 Err(e)
             }
+        }
+    }
+
+    fn could_be_empty(&self) -> bool {
+        match &self.inner {
+            P::Raw(p) => p.could_be_empty(),
+            P::Choose { options, .. } => options.iter().any(|p| p.could_be_empty()),
         }
     }
 
@@ -539,6 +559,10 @@ struct Many0<T>(Parser<T>);
 impl<T: 'static> IsParser for Many0<T> {
     type Output = Vec<T>;
 
+    fn could_be_empty(&self) -> bool {
+        true
+    }
+
     fn parse<'a>(&self, mut input: &'a str) -> Result<(Self::Output, &'a str), Error> {
         let mut output = Vec::new();
         loop {
@@ -588,7 +612,35 @@ impl<T: 'static> IsParser for Many0<T> {
     }
 
     fn encode(&self, dfa: &mut DFA, encoding: Encoding) -> SetUsize {
-        unimplemented!()
+        let mut ending_states = encoding.starting_state.clone();
+        let space_index = charnum(b' ');
+        for start in encoding.starting_state {
+            // Require a ' ' before the repeating pattern.
+            let mut starting_state = SetUsize::new();
+            let next_available = dfa.states.len();
+            let mut next = dfa.states[start].next[space_index];
+            if next >= dfa.states.len() {
+                dfa.states[start].next[space_index] = next_available;
+                next = next_available;
+                dfa.states.push(State::default());
+            }
+            starting_state.insert(next);
+            // Now encode the second parser
+            let encoding = Encoding {
+                starting_state,
+                ..encoding
+            };
+            for ending in self.0.encode(dfa, encoding) {
+                ending_states.insert(ending);
+                // If this ending is followed by a ' ', then we should return the state after one space after our starting state.
+                if dfa.states[ending].next[space_index] < dfa.states.len() {
+                    panic!("loop that is a substring of an existing pattern");
+                } else {
+                    dfa.states[ending].next[space_index] = next;
+                }
+            }
+        }
+        ending_states
     }
 }
 
@@ -774,15 +826,6 @@ impl Default for State {
         }
     }
 }
-impl State {
-    fn complete() -> Self {
-        State {
-            complete: true,
-            next: [usize::MAX; 27],
-            breadcrumbs: Vec::new(),
-        }
-    }
-}
 impl std::fmt::Debug for State {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         if self.breadcrumbs.is_empty() {
@@ -812,7 +855,7 @@ impl std::fmt::Debug for DFA {
 impl Default for DFA {
     fn default() -> Self {
         DFA {
-            states: vec![State::default(), State::complete()],
+            states: vec![State::default()],
         }
     }
 }
@@ -922,4 +965,14 @@ fn checking() {
     assert_eq!(Err(Error::Incomplete), dfa.check("eat spi"));
     assert_eq!(Err(Error::Incomplete), dfa.check("eat kale ev"));
     assert_eq!(Err(Error::Wrong), dfa.check("eat candy every day"));
+
+    println!("\nMoving on to simple repeat");
+    let dfa = DFA::encode("fa".then("la".many0()));
+    println!("Full dfa: {dfa:?}");
+    assert!(dfa.check("fa la la la la").is_ok());
+    assert!(dfa.check("fa").is_ok());
+    assert_eq!(Err(Error::Incomplete), dfa.check("fa la "));
+    assert_eq!(Err(Error::Incomplete), dfa.check("fa "));
+    assert_eq!(Err(Error::Incomplete), dfa.check("fa la l"));
+    assert_eq!(Err(Error::Wrong), dfa.check("fa la fa"));
 }
