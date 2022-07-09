@@ -815,8 +815,15 @@ impl DFA {
 
     fn encode<P: IsParser>(parser: P) -> Self {
         let mut dfa = DFA::default();
+        let start = if parser.could_be_empty() {
+            dfa.states.push(State::default());
+            dfa.states[1].next[charnum(b' ')] = 0;
+            dfa.states.len() - 1
+        } else {
+            0
+        };
         let encoding = Encoding {
-            starting_state: [0].into_iter().collect(),
+            starting_state: [start].into_iter().collect(),
         };
         for end in parser.encode(&mut dfa, encoding) {
             dfa.states[end].complete = true;
@@ -913,8 +920,9 @@ fn checking() {
     println!("Full dfa: {dfa:?}");
     assert!(dfa.check("fa la so la la").is_ok());
     assert!(dfa.check("fa").is_ok());
+    assert!(dfa.check("fa fa fa").is_ok());
     assert_eq!(Err(Error::Incomplete), dfa.check("fa la "));
     assert_eq!(Err(Error::Incomplete), dfa.check("fa "));
     assert_eq!(Err(Error::Incomplete), dfa.check("fa la l"));
-    assert_eq!(Err(Error::Wrong), dfa.check("fa la fa"));
+    assert_eq!(Err(Error::Wrong), dfa.check("fa la do"));
 }
