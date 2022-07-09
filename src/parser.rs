@@ -232,8 +232,21 @@ impl<T: 'static, U: 'static, V: 'static> IsParser for Join<T, U, V> {
             ending_state: None,
             ..encoding
         };
+        // Require a ' ' before the next pattern.
+        let mut current_state = self.parser1.encode(dfa, first);
+        let index = charnum(b' ');
+        let next = dfa.states[current_state].next[index];
+        if next < dfa.states.len() {
+            current_state = next;
+        } else {
+            let next = dfa.states.len();
+            dfa.states[current_state].next[index] = next;
+            current_state = next;
+            dfa.states.push(State::default())
+        }
+        // Now encode the second parser
         let second = Encoding {
-            starting_state: self.parser1.encode(dfa, first),
+            starting_state: current_state,
             ..encoding
         };
         self.parser2.encode(dfa, second)
@@ -413,23 +426,6 @@ impl IsParser for &'static str {
         }
         if encoding.toplevel {
             dfa.states[current_state].complete = true;
-        }
-        // Now add a space before the next string
-        let index = charnum(b' ');
-        let next = dfa.states[current_state].next[index];
-        if next > dfa.states.len() {
-            let next = if let Some(ending) = encoding.ending_state {
-                ending
-            } else {
-                dfa.states.push(State::default());
-                dfa.states.len() - 1
-            };
-            dfa.states[current_state].next[index] = next;
-            current_state = next;
-        } else {
-            // FIXME We need to rewrite our ending state, this is going to be more complicated!
-            assert!(encoding.ending_state.is_none());
-            current_state = next;
         }
         current_state
     }
@@ -833,7 +829,7 @@ fn checking() {
     println!("Full dfa: {dfa:?}");
     assert!(dfa.check("hello").is_ok());
     assert_eq!(Err(Error::Incomplete), dfa.check("hell"));
-    assert_eq!(Err(Error::Incomplete), dfa.check("hello "));
+    assert_eq!(Err(Error::Wrong), dfa.check("hello "));
     assert_eq!(Err(Error::Wrong), dfa.check("hello world"));
 
     println!("\nMoving on to hello world");
@@ -852,7 +848,7 @@ fn checking() {
     println!("Full dfa: {dfa:?}");
     assert!(dfa.check("broccoli").is_ok());
     assert_eq!(Err(Error::Incomplete), dfa.check("kal"));
-    assert_eq!(Err(Error::Incomplete), dfa.check("spinach "));
+    assert_eq!(Err(Error::Wrong), dfa.check("spinach "));
     assert_eq!(Err(Error::Wrong), dfa.check("goodbye "));
     assert_eq!(Err(Error::Wrong), dfa.check("kale i am david"));
 
