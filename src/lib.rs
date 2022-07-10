@@ -254,7 +254,7 @@ pub fn load_voice_control(
         stream.feed_audio(data);
         let x = stream.finish_stream_with_metadata(2).unwrap().to_owned();
         let transcripts = x.transcripts();
-        let scores: Vec<f64> = transcripts.iter().map(|c| c.confidence()).collect();
+        // let scores: Vec<f64> = transcripts.iter().map(|c| c.confidence()).collect();
         let phrases: Vec<String> = transcripts
             .iter()
             .map(|c| {
@@ -291,7 +291,7 @@ pub fn load_voice_control(
                     // println!("    Running action {action:?}");
                     Some(action)
                 }
-                Ok((action, remainder)) => {
+                Ok((_action, _remainder)) => {
                     // println!("    We had extra words: {remainder:?} after {action:?}");
                     None
                 }
@@ -321,7 +321,6 @@ fn save_data(fname: &str, data: &[i16]) {
 #[doc(hidden)]
 pub fn load_data(fname: &str) -> Vec<i16> {
     let reader = hound::WavReader::open(fname).unwrap();
-    let len = reader.len();
     reader.into_samples().map(|s| s.unwrap()).collect()
 }
 

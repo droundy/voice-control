@@ -1,13 +1,13 @@
-use std::{
-    collections::{HashMap, HashSet},
-    sync::Arc,
-};
-
-use tinyset::SetUsize;
+use std::{collections::HashMap, sync::Arc};
 
 pub mod number;
 pub mod roundy;
 pub mod spelling;
+
+mod regular;
+pub use regular::{State, DFA};
+
+use self::regular::RegularGrammar;
 
 #[derive(Debug, PartialEq, Eq, Clone)]
 pub enum Error {
@@ -87,20 +87,13 @@ pub trait IsParser: Sync + Send {
         false
     }
 
-    /// Returns the state for any following parse
-    fn encode(&self, dfa: &mut DFA, encoding: Encoding) -> SetUsize;
-}
-
-#[derive(Clone)]
-pub struct Encoding {
-    starting_state: SetUsize,
+    fn to_grammar(&self, next_position: &mut usize) -> RegularGrammar;
 }
 
 pub trait IntoParser: Sized + IsParser + 'static {
     fn into_parser(self) -> Parser<Self::Output> {
         Parser {
             inner: P::Raw(Arc::new(self)),
-            invalid_cache: HashSet::new(),
         }
     }
 
@@ -152,7 +145,6 @@ impl<PP: IsParser + 'static> IntoParser for PP {}
 #[derive(Clone)]
 pub struct Parser<T> {
     inner: P<T>,
-    invalid_cache: HashSet<String>,
 }
 #[derive(Clone)]
 enum P<T> {
@@ -189,8 +181,8 @@ impl<T: 'static, U: 'static> IsParser for Map<T, U> {
         self.parser.describe()
     }
 
-    fn encode(&self, dfa: &mut DFA, encoding: Encoding) -> SetUsize {
-        self.parser.encode(dfa, encoding)
+    fn to_grammar(&self, next_position: &mut usize) -> RegularGrammar {
+        self.parser.to_grammar(next_position)
     }
 }
 struct Join<T, U, V> {
@@ -230,39 +222,25 @@ impl<T: 'static, U: 'static, V: 'static> IsParser for Join<T, U, V> {
         d
     }
 
-    fn encode(&self, dfa: &mut DFA, encoding: Encoding) -> SetUsize {
-        let first = Encoding { ..encoding };
-        let current_states = self.parser1.encode(dfa, first);
-        if self.parser2.could_be_empty() {
-            println!("I AM SKIPPING NO SPACE");
-            let second = Encoding {
-                starting_state: current_states,
-                ..encoding
-            };
-            self.parser2.encode(dfa, second)
-        } else {
-            // Require a ' ' before the next pattern, unless the next parser could be empty.
-            let index = charnum(b' ');
-            let mut new_current_state = SetUsize::new();
-            let next_available = dfa.states.len();
-            for current_state in current_states {
-                let next = dfa.states[current_state].next[index];
-                if next < dfa.states.len() {
-                    new_current_state.insert(next);
-                } else {
-                    dfa.states[current_state].next[index] = next_available;
-                    new_current_state.insert(next_available);
-                    if dfa.states.len() == next_available {
-                        dfa.states.push(State::default());
-                    }
-                }
+    fn to_grammar(&self, next_position: &mut usize) -> RegularGrammar {
+        let g1 = self.parser1.to_grammar(next_position);
+        let g2 = self.parser2.to_grammar(next_position);
+        match (g1, g2) {
+            (RegularGrammar::Phrase(mut v1), RegularGrammar::Phrase(v2)) => {
+                v1.extend(v2);
+                RegularGrammar::Phrase(v1)
             }
-            // Now encode the second parser
-            let second = Encoding {
-                starting_state: new_current_state,
-                ..encoding
-            };
-            self.parser2.encode(dfa, second)
+            (RegularGrammar::Phrase(mut v), g2) => {
+                v.push(g2);
+                RegularGrammar::Phrase(v)
+            }
+            (g1, RegularGrammar::Phrase(v2)) => {
+                let mut v = Vec::with_capacity(1 + v2.len());
+                v.push(g1);
+                v.extend(v2);
+                RegularGrammar::Phrase(v)
+            }
+            (g1, g2) => RegularGrammar::Phrase(vec![g1, g2]),
         }
     }
 }
@@ -297,6 +275,18 @@ impl<T: 'static> IsParser for Parser<T> {
         match &self.inner {
             P::Raw(p) => p.could_be_empty(),
             P::Choose { options, .. } => options.iter().any(|p| p.could_be_empty()),
+        }
+    }
+
+    fn to_grammar(&self, next_position: &mut usize) -> RegularGrammar {
+        match &self.inner {
+            P::Raw(p) => p.to_grammar(next_position),
+            P::Choose { options, .. } => RegularGrammar::Choice(
+                options
+                    .iter()
+                    .map(|p| p.to_grammar(next_position))
+                    .collect(),
+            ),
         }
     }
 
@@ -352,20 +342,6 @@ impl<T: 'static> IsParser for Parser<T> {
             }
         }
     }
-
-    fn encode(&self, dfa: &mut DFA, mut encoding: Encoding) -> SetUsize {
-        match &self.inner {
-            P::Raw(p) => p.encode(dfa, encoding),
-            P::Choose { options, .. } => {
-                assert!(!options.is_empty());
-                let mut endings = SetUsize::new();
-                for o in options {
-                    endings = endings | &o.encode(dfa, encoding.clone());
-                }
-                endings
-            }
-        }
-    }
 }
 
 pub fn choose<T, PP: IntoParser<Output = T>>(name: &str, options: Vec<PP>) -> Parser<T> {
@@ -374,7 +350,6 @@ pub fn choose<T, PP: IntoParser<Output = T>>(name: &str, options: Vec<PP>) -> Pa
             name: name.to_string(),
             options: options.into_iter().map(|p| p.into_parser()).collect(),
         },
-        invalid_cache: HashSet::new(),
     }
 }
 
@@ -427,46 +402,13 @@ impl IsParser for &'static str {
             patterns: Vec::new(),
         }
     }
-
-    fn encode(&self, dfa: &mut DFA, encoding: Encoding) -> SetUsize {
-        assert!(self.len() > 0);
-        let mut current_states = encoding.starting_state;
-        // First do all but the last byte.
-        for b in self.as_bytes()[..self.len() - 1].iter().copied() {
-            let index = charnum(b);
-            let next_available = dfa.states.len();
-            let mut next_states = SetUsize::new();
-            for current_state in current_states.iter() {
-                let next = dfa.states[current_state].next[index];
-                if next < dfa.states.len() {
-                    next_states.insert(next);
-                } else {
-                    dfa.states[current_state].next[index] = next_available;
-                    next_states.insert(next_available);
-                    if dfa.states.len() == next_available {
-                        dfa.states.push(State::default());
-                    }
-                }
-            }
-            current_states = next_states;
-        }
-        // Now encode the last byte...
-        let index = charnum(self.as_bytes()[self.len() - 1]);
-        let next_available = dfa.states.len();
-        let mut next_states = SetUsize::new();
-        for current_state in current_states.iter() {
-            let next = dfa.states[current_state].next[index];
-            if next < dfa.states.len() {
-                next_states.insert(next);
-            } else {
-                dfa.states[current_state].next[index] = next_available;
-                next_states.insert(next_available);
-                if dfa.states.len() == next_available {
-                    dfa.states.push(State::default());
-                }
-            }
-        }
-        next_states
+    fn to_grammar(&self, next_position: &mut usize) -> RegularGrammar {
+        let mut bytes = Vec::with_capacity(self.len() + 1);
+        bytes.push(b' ');
+        bytes.extend(self.as_bytes());
+        let position = *next_position;
+        *next_position += bytes.len();
+        RegularGrammar::Word { bytes, position }
     }
 }
 
@@ -488,9 +430,8 @@ impl IsParser for () {
             patterns: Vec::new(),
         }
     }
-
-    fn encode(&self, dfa: &mut DFA, encoding: Encoding) -> SetUsize {
-        encoding.starting_state
+    fn to_grammar(&self, _next_position: &mut usize) -> RegularGrammar {
+        RegularGrammar::Phrase(Vec::new())
     }
 }
 
@@ -549,8 +490,11 @@ impl<T: 'static> IsParser for Many1<T> {
         d
     }
 
-    fn encode(&self, dfa: &mut DFA, encoding: Encoding) -> SetUsize {
-        unimplemented!()
+    fn to_grammar(&self, next_position: &mut usize) -> RegularGrammar {
+        RegularGrammar::Phrase(vec![
+            self.0.to_grammar(next_position),
+            RegularGrammar::Many0(Box::new(self.0.to_grammar(next_position))),
+        ])
     }
 }
 
@@ -610,37 +554,8 @@ impl<T: 'static> IsParser for Many0<T> {
         }
         d
     }
-
-    fn encode(&self, dfa: &mut DFA, encoding: Encoding) -> SetUsize {
-        let mut ending_states = encoding.starting_state.clone();
-        let space_index = charnum(b' ');
-        for start in encoding.starting_state {
-            // Require a ' ' before the repeating pattern.
-            let mut starting_state = SetUsize::new();
-            let next_available = dfa.states.len();
-            let mut next = dfa.states[start].next[space_index];
-            if next >= dfa.states.len() {
-                dfa.states[start].next[space_index] = next_available;
-                next = next_available;
-                dfa.states.push(State::default());
-            }
-            starting_state.insert(next);
-            // Now encode the second parser
-            let encoding = Encoding {
-                starting_state,
-                ..encoding
-            };
-            for ending in self.0.encode(dfa, encoding) {
-                ending_states.insert(ending);
-                // If this ending is followed by a ' ', then we should return the state after one space after our starting state.
-                if dfa.states[ending].next[space_index] < dfa.states.len() {
-                    panic!("loop that is a substring of an existing pattern");
-                } else {
-                    dfa.states[ending].next[space_index] = next;
-                }
-            }
-        }
-        ending_states
+    fn to_grammar(&self, next_position: &mut usize) -> RegularGrammar {
+        RegularGrammar::Many0(Box::new(self.0.to_grammar(next_position)))
     }
 }
 
@@ -679,8 +594,11 @@ impl<T: 'static> IsParser for Optional<T> {
         d
     }
 
-    fn encode(&self, dfa: &mut DFA, encoding: Encoding) -> SetUsize {
-        unimplemented!()
+    fn to_grammar(&self, next_position: &mut usize) -> RegularGrammar {
+        RegularGrammar::Choice(vec![
+            self.0.to_grammar(next_position),
+            RegularGrammar::Phrase(Vec::new()),
+        ])
     }
 }
 
@@ -728,114 +646,10 @@ fn test_baby_actions() {
     assert_eq!(Err(Error::Wrong), p.parse("pee"));
 }
 
-fn charnum(c: u8) -> usize {
-    match c {
-        b' ' => 26,
-        c if c >= b'a' && c <= b'z' => (c - b'a') as usize,
-        _ => panic!("unsupported character {:?}", c as char),
-    }
-}
-fn numchar(n: usize) -> char {
-    match n {
-        26 => ' ',
-        n if n < 26 => (b'a' + n as u8) as char,
-        _ => panic!("unsupported character"),
-    }
-}
-
-struct State {
-    /// The pattern could end here with this prefix.
-    complete: bool,
-    next: [usize; 27],
-    breadcrumbs: Vec<(Vec<u8>, Vec<u8>)>,
-}
-impl Default for State {
-    fn default() -> Self {
-        State {
-            complete: false,
-            next: [usize::MAX; 27],
-            breadcrumbs: Vec::new(),
-        }
-    }
-}
-impl std::fmt::Debug for State {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        if self.breadcrumbs.is_empty() {
-            if self.complete {
-                f.write_str("C")?;
-            } else {
-                f.write_str(" ")?;
-            }
-            for (which, n) in self.next.iter().copied().enumerate() {
-                let c = numchar(which);
-                if n < usize::MAX {
-                    write!(f, " {c:?} -> {n}")?;
-                }
-            }
-        }
-        Ok(())
-    }
-}
-impl std::fmt::Debug for DFA {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        for (n, state) in self.states.iter().enumerate() {
-            write!(f, "\n  {n}: {state:?}")?;
-        }
-        Ok(())
-    }
-}
-impl Default for DFA {
-    fn default() -> Self {
-        DFA {
-            states: vec![State::default()],
-        }
-    }
-}
-
-pub struct DFA {
-    // TODO: split state so we can have `next` be more memory compact for faster checking.
-    states: Vec<State>,
-}
-
-impl DFA {
-    pub fn check(&self, input: &str) -> Result<(), Error> {
-        let mut current_state = 0;
-        for b in input.as_bytes().iter().copied() {
-            current_state = self.states[current_state].next[charnum(b)];
-            if current_state >= self.states.len() {
-                return Err(Error::Wrong);
-            }
-        }
-        if self.states[current_state].complete {
-            Ok(())
-        } else {
-            Err(Error::Incomplete)
-        }
-    }
-
-    fn encode<P: IsParser>(parser: P) -> Self {
-        let mut dfa = DFA::default();
-        let start = if parser.could_be_empty() {
-            dfa.states.push(State::default());
-            dfa.states[1].next[charnum(b' ')] = 0;
-            dfa.states.len() - 1
-        } else {
-            0
-        };
-        let encoding = Encoding {
-            starting_state: [start].into_iter().collect(),
-        };
-        for end in parser.encode(&mut dfa, encoding) {
-            dfa.states[end].complete = true;
-        }
-        dfa
-    }
-}
-
 #[test]
 fn checking() {
     let dfa = DFA::encode("hello");
-    println!("Full dfa: {dfa:?}");
+    println!("Full dfa for hello: {dfa:?}");
     assert!(dfa.check("hello").is_ok());
     assert_eq!(Err(Error::Incomplete), dfa.check("hell"));
     assert_eq!(Err(Error::Wrong), dfa.check("hello "));
@@ -915,8 +729,10 @@ fn checking() {
     assert_eq!(Err(Error::Incomplete), dfa.check("fa la l"));
     assert_eq!(Err(Error::Wrong), dfa.check("fa la fa"));
 
+    let shape_note = choose("<note>", vec!["fa", "so", "la", "mi"]);
     println!("\nMoving on to repeat of a choose");
-    let dfa = DFA::encode(choose("<note>", vec!["fa", "so", "la", "mi"]).many0());
+
+    let dfa = DFA::encode(shape_note.clone().many0());
     println!("Full dfa: {dfa:?}");
     assert!(dfa.check("fa la so la la").is_ok());
     assert!(dfa.check("fa").is_ok());
@@ -925,4 +741,24 @@ fn checking() {
     assert_eq!(Err(Error::Incomplete), dfa.check("fa "));
     assert_eq!(Err(Error::Incomplete), dfa.check("fa la l"));
     assert_eq!(Err(Error::Wrong), dfa.check("fa la do"));
+
+    let dfa = DFA::encode("sing".then(shape_note.clone().many0()));
+    println!("Full dfa: {dfa:?}");
+    assert!(dfa.check("sing fa la so la la").is_ok());
+    assert!(dfa.check("sing fa").is_ok());
+    assert!(dfa.check("sing fa fa fa").is_ok());
+    assert_eq!(Err(Error::Incomplete), dfa.check("sing fa la "));
+    assert_eq!(Err(Error::Incomplete), dfa.check("sing fa "));
+    assert_eq!(Err(Error::Incomplete), dfa.check("sing fa la l"));
+    assert_eq!(Err(Error::Wrong), dfa.check("sing fa la do"));
+
+    let dfa = DFA::encode("sing".then(shape_note.clone().many0().then("done")));
+    println!("Full dfa: {dfa:?}");
+    assert!(dfa.check("sing fa la so la la done").is_ok());
+    assert!(dfa.check("sing fa done").is_ok());
+    assert!(dfa.check("sing fa fa fa done").is_ok());
+    assert_eq!(Err(Error::Incomplete), dfa.check("sing fa la "));
+    assert_eq!(Err(Error::Incomplete), dfa.check("sing fa "));
+    assert_eq!(Err(Error::Incomplete), dfa.check("sing fa la l"));
+    assert_eq!(Err(Error::Wrong), dfa.check("sing fa la do"));
 }

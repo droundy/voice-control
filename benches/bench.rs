@@ -76,7 +76,6 @@ fn main() {
         bench_parse(text, "mice_testing", parse_mice_testing);
         bench_parse(text, "roundy", roundy::parser);
     }
-    return;
 
     for audio in [
         "testing-testing-testing",
