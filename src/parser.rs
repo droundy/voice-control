@@ -756,9 +756,13 @@ fn checking() {
     println!("Full dfa: {dfa:?}");
     assert!(dfa.check("sing fa la so la la done").is_ok());
     assert!(dfa.check("sing fa done").is_ok());
+    assert!(dfa.check("sing done").is_ok());
     assert!(dfa.check("sing fa fa fa done").is_ok());
     assert_eq!(Err(Error::Incomplete), dfa.check("sing fa la "));
     assert_eq!(Err(Error::Incomplete), dfa.check("sing fa "));
+    assert_eq!(Ok(()), dfa.check("sing fa la la done"));
+    assert_eq!(Err(Error::Incomplete), dfa.check("sing fa la la"));
     assert_eq!(Err(Error::Incomplete), dfa.check("sing fa la l"));
-    assert_eq!(Err(Error::Wrong), dfa.check("sing fa la do"));
+    assert_eq!(Err(Error::Incomplete), dfa.check("sing fa la do"));
+    assert_eq!(Err(Error::Wrong), dfa.check("sing fa la re"));
 }
