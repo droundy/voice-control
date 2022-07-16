@@ -1,3 +1,5 @@
+use std::fmt::Debug;
+
 use tinyset::SetUsize;
 
 use crate::parser::Error;
@@ -10,6 +12,43 @@ pub enum RegularGrammar {
     Choice(Vec<RegularGrammar>),
     Many0(Box<RegularGrammar>),
     Phrase(Vec<RegularGrammar>),
+}
+
+impl std::fmt::Display for RegularGrammar {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match &self {
+            RegularGrammar::Word { bytes, .. } => {
+                write!(f, "{:?}", String::from_utf8_lossy(&*bytes))
+            }
+            RegularGrammar::Phrase(v) => {
+                if v.is_empty() {
+                    f.write_str("[]")
+                } else {
+                    f.write_str("[")?;
+                    write!(f, "{}", v[0])?;
+                    for x in v.iter() {
+                        write!(f, " {x}")?;
+                    }
+                    f.write_str("]")
+                }
+            }
+            RegularGrammar::Choice(v) => {
+                if v.is_empty() {
+                    f.write_str("()")
+                } else {
+                    f.write_str("(")?;
+                    write!(f, "{}", v[0])?;
+                    for x in v.iter() {
+                        write!(f, " | {x}")?;
+                    }
+                    f.write_str(")")
+                }
+            }
+            RegularGrammar::Many0(g) => {
+                write!(f, "{g}*")
+            }
+        }
+    }
 }
 
 struct FollowEntry {
@@ -42,7 +81,10 @@ impl RegularGrammar {
             RegularGrammar::Many0(g) => {
                 g.simplify();
             }
-            RegularGrammar::Phrase(v) if v.len() == 1 => *self = v.pop().unwrap(),
+            RegularGrammar::Phrase(v) if v.len() == 1 => {
+                *self = v.pop().unwrap();
+                self.simplify();
+            }
             RegularGrammar::Phrase(v) => {
                 for g in v.iter_mut() {
                     g.simplify();
@@ -122,12 +164,19 @@ impl RegularGrammar {
                 }
                 for (i, b) in bytes[..bytes.len() - 1].iter().copied().enumerate() {
                     let num = *position + i;
-                    table[num].bytenum = charnum(b);
+                    if let Some(bytenum) = try_charnum(b) {
+                        table[num].bytenum = bytenum;
+                    } else {
+                        panic!("Invalid character {b:?} in {self}");
+                    }
                     table[num].followed_by = [num + 1].into_iter().collect();
                 }
                 table[*position + bytes.len() - 1].bytenum = charnum(bytes[bytes.len() - 1]);
             }
             RegularGrammar::Phrase(v) => {
+                if v.len() < 1 {
+                    return;
+                }
                 for g in v.iter() {
                     g.fill_follow(table);
                 }
@@ -182,6 +231,13 @@ fn charnum(c: u8) -> usize {
         b' ' => 26,
         c if c >= b'a' && c <= b'z' => (c - b'a') as usize,
         _ => panic!("unsupported character {:?}", c as char),
+    }
+}
+fn try_charnum(c: u8) -> Option<usize> {
+    match c {
+        b' ' => Some(26),
+        c if c >= b'a' && c <= b'z' => Some((c - b'a') as usize),
+        _ => None,
     }
 }
 fn numchar(n: usize) -> char {
@@ -249,8 +305,12 @@ impl DFA {
     pub fn check(&self, input: &str) -> Result<(), Error> {
         let mut current_state = 1;
         for b in input.as_bytes().iter().copied() {
-            current_state = self.states[current_state].next[charnum(b)];
-            if current_state >= self.states.len() {
+            if let Some(n) = try_charnum(b) {
+                current_state = self.states[current_state].next[n];
+                if current_state >= self.states.len() {
+                    return Err(Error::Wrong);
+                }
+            } else {
                 return Err(Error::Wrong);
             }
         }
@@ -324,7 +384,7 @@ impl DFA {
                 position: 0,
             },
         ]);
-        // grammar.simplify();
+        grammar.simplify();
         grammar.into()
     }
 }

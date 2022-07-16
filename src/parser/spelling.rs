@@ -29,7 +29,7 @@ pub fn nato() -> Parser<char> {
             "uniform".gives('u'),
             "victor".gives('v'),
             "whiskey".gives('w'),
-            "x-ray".gives('x'),
+            "x ray".gives('x'),
             "yankee".gives('y'),
             "zulu".gives('z'),
         ],
@@ -132,7 +132,7 @@ fn test() {
         <NATO>: alpha | bravo | charlie | delta | echo | foxtrot | golf | hotel
             | india | juliett | kilo | lima | mike | november | oscar | papa
             | quebec | romeo | sierra | tango | uniform | victor | whiskey
-            | x-ray | yankee | zulu
+            | x ray | yankee | zulu
         <digit>: zero | one | two | three | four | five | six | seven | eight
             | nine
     "#]];

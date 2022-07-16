@@ -55,7 +55,15 @@ fn bench_recognize(audio: &str, name: &str, parser: impl Fn() -> Parser<Action>)
 
 fn bench_parse(text: &str, name: &str, parser: impl Fn() -> Parser<Action>) {
     let parser = parser();
-    println!("   {name}: {}", scaling::bench(|| { parser.parse(text) }));
+    let checker = parser.to_checker();
+    println!(
+        "   {name:>15}      : {}",
+        scaling::bench(|| { parser.parse(text) })
+    );
+    println!(
+        "   {name:>15} check: {}",
+        scaling::bench(|| { checker(text) })
+    );
 }
 
 fn main() {
