@@ -245,6 +245,14 @@ impl<T: 'static, U: 'static, V: 'static> IsParser for Join<T, U, V> {
     }
 }
 
+impl<T: 'static> Parser<T> {
+    /// Compile an optimized checker that will quickly confirm if a `&str` matches this grammar.
+    pub fn to_checker(&self) -> impl 'static + Fn(&str) -> Result<(), Error> {
+        let dfa = DFA::encode(self);
+        move |s| dfa.check(s)
+    }
+}
+
 impl<T: 'static> IsParser for Parser<T> {
     type Output = T;
     fn parse<'a>(&self, input: &'a str) -> Result<(T, &'a str), Error> {
@@ -648,7 +656,7 @@ fn test_baby_actions() {
 
 #[test]
 fn checking() {
-    let dfa = DFA::encode("hello");
+    let dfa = DFA::encode(&"hello");
     println!("Full dfa for hello: {dfa:?}");
     assert!(dfa.check("hello").is_ok());
     assert_eq!(Err(Error::Incomplete), dfa.check("hell"));
@@ -656,7 +664,7 @@ fn checking() {
     assert_eq!(Err(Error::Wrong), dfa.check("hello world"));
 
     println!("\nMoving on to hello world");
-    let dfa = DFA::encode("hello".map(|a| a) + "world");
+    let dfa = DFA::encode(&("hello".map(|a| a) + "world"));
     println!("Full dfa: {dfa:?}");
     assert!(dfa.check("hello world").is_ok());
     assert_eq!(Err(Error::Incomplete), dfa.check("hell"));
@@ -665,7 +673,7 @@ fn checking() {
     assert_eq!(Err(Error::Wrong), dfa.check("hello world i am david"));
 
     println!("\nMoving on to choose");
-    let dfa = DFA::encode(choose("<food>", vec!["broccoli", "kale", "spinach"]));
+    let dfa = DFA::encode(&(choose("<food>", vec!["broccoli", "kale", "spinach"])));
     println!("Full dfa: {dfa:?}");
     assert!(dfa.check("broccoli").is_ok());
     assert_eq!(Err(Error::Incomplete), dfa.check("kal"));
@@ -674,10 +682,12 @@ fn checking() {
     assert_eq!(Err(Error::Wrong), dfa.check("kale i am david"));
 
     println!("\nMoving on to choose with substrings");
-    let dfa = DFA::encode(choose(
-        "<food>",
-        vec!["peas", "peas and corn on the cob", "peas and corn"],
-    ));
+    let dfa = DFA::encode(
+        &(choose(
+            "<food>",
+            vec!["peas", "peas and corn on the cob", "peas and corn"],
+        )),
+    );
     println!("Full dfa: {dfa:?}");
     assert!(dfa.check("peas").is_ok());
     assert!(dfa.check("peas and corn on the cob").is_ok());
@@ -689,7 +699,7 @@ fn checking() {
 
     println!("\nMoving on to choose in sequence");
     let dfa = DFA::encode(
-        "eat".gives(0) + choose("<food>", vec!["broccoli", "kale", "spinach"]) + "every day",
+        &("eat".gives(0) + choose("<food>", vec!["broccoli", "kale", "spinach"]) + "every day"),
     );
     println!("Full dfa: {dfa:?}");
     assert!(dfa.check("eat broccoli every day").is_ok());
@@ -701,14 +711,14 @@ fn checking() {
 
     println!("\nMoving on to choose in parallel");
     let dfa = DFA::encode(
-        choose(
+        &(choose(
             "<healthy activity>",
             vec![
                 "eat broccoli and kale and exercize".gives((1, "everything")),
                 "eat".gives(0) + choose("<food>", vec!["broccoli", "kale", "spinach"]),
                 "exercize".gives((1, "workout")),
             ],
-        ) + "every day",
+        ) + "every day"),
     );
     println!("Full dfa: {dfa:?}");
     assert!(dfa.check("eat broccoli every day").is_ok());
@@ -720,7 +730,7 @@ fn checking() {
     assert_eq!(Err(Error::Wrong), dfa.check("eat candy every day"));
 
     println!("\nMoving on to simple repeat");
-    let dfa = DFA::encode("fa".then("la".many0()));
+    let dfa = DFA::encode(&("fa".then("la".many0())));
     println!("Full dfa: {dfa:?}");
     assert!(dfa.check("fa la la la la").is_ok());
     assert!(dfa.check("fa").is_ok());
@@ -732,7 +742,7 @@ fn checking() {
     let shape_note = choose("<note>", vec!["fa", "so", "la", "mi"]);
     println!("\nMoving on to repeat of a choose");
 
-    let dfa = DFA::encode(shape_note.clone().many0());
+    let dfa = DFA::encode(&(shape_note.clone().many0()));
     println!("Full dfa: {dfa:?}");
     assert!(dfa.check("fa la so la la").is_ok());
     assert!(dfa.check("fa").is_ok());
@@ -742,7 +752,7 @@ fn checking() {
     assert_eq!(Err(Error::Incomplete), dfa.check("fa la l"));
     assert_eq!(Err(Error::Wrong), dfa.check("fa la do"));
 
-    let dfa = DFA::encode("sing".then(shape_note.clone().many0()));
+    let dfa = DFA::encode(&("sing".then(shape_note.clone().many0())));
     println!("Full dfa: {dfa:?}");
     assert!(dfa.check("sing fa la so la la").is_ok());
     assert!(dfa.check("sing fa").is_ok());
@@ -752,7 +762,7 @@ fn checking() {
     assert_eq!(Err(Error::Incomplete), dfa.check("sing fa la l"));
     assert_eq!(Err(Error::Wrong), dfa.check("sing fa la do"));
 
-    let dfa = DFA::encode("sing".then(shape_note.clone().many0().then("done")));
+    let dfa = DFA::encode(&("sing".then(shape_note.clone().many0().then("done"))));
     println!("Full dfa: {dfa:?}");
     assert!(dfa.check("sing fa la so la la done").is_ok());
     assert!(dfa.check("sing fa done").is_ok());

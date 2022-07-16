@@ -2,7 +2,7 @@ use tinyset::SetUsize;
 
 use crate::parser::Error;
 
-use super::{IntoParser, IsParser};
+use super::IsParser;
 
 #[derive(Debug)]
 pub enum RegularGrammar {
@@ -314,7 +314,7 @@ impl From<RegularGrammar> for DFA {
 }
 
 impl DFA {
-    pub fn encode<P: IntoParser>(parser: P) -> Self {
+    pub fn encode<P: IsParser>(parser: &P) -> Self {
         let mut next_position = 1;
         let grammar = parser.to_grammar(&mut next_position);
         let mut grammar = RegularGrammar::Phrase(vec![
