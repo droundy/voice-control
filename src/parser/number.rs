@@ -21,7 +21,7 @@ pub fn digit() -> Parser<usize> {
 }
 pub fn counting_digit() -> Parser<usize> {
     choose(
-        "<ones>",
+        "<counting digit>",
         vec![
             "one".into_parser().gives(1),
             "two".into_parser().gives(2),
@@ -131,7 +131,7 @@ pub fn number_range(mut min: usize, mut max: usize) -> Parser<usize> {
         min = std::cmp::min(min, 1);
         max = 99;
         choices.push(one_to_ninetynine());
-    } else {
+    } else if max < 1000 {
         min = std::cmp::min(min, 1);
         max = 999;
         choices.push(ten_to_ninetynine());
@@ -146,6 +146,28 @@ pub fn number_range(mut min: usize, mut max: usize) -> Parser<usize> {
                 ],
             ),
             |h, sh| if sh > 100 { h } else { h * 100 + sh },
+        ));
+    } else {
+        min = std::cmp::min(min, 1);
+        max = 999_999;
+        const NOT: usize = 0xffffff;
+        choices.push(number_range(1, 999).join(
+            choose(
+                "<after-1-999>",
+                vec![
+                    "thousand and".then(counting_digit()),
+                    "thousand".then(number_range(1, 999)),
+                    "thousand".gives(0),
+                    ().gives(NOT),
+                ],
+            ),
+            |thousand, less| {
+                if less > 1000 {
+                    thousand
+                } else {
+                    thousand * 1000 + less
+                }
+            },
         ));
     };
     if min == 0 {
@@ -187,42 +209,48 @@ fn test_number_range() {
 fn test() {
     let mut p = number();
 
+    assert_eq!(Ok(0), p.parse_complete("zero"));
     assert_eq!(Ok(1), p.parse_complete("one"));
     assert_eq!(Ok(21), p.parse_complete("twenty one"));
     assert_eq!(Ok(321), p.parse_complete("three hundred twenty one"));
     assert_eq!(Ok(300), p.parse_complete("three hundred"));
-    // assert_eq!(
-    //     Ok(3_101),
-    //     p.parse_complete("three thousand one hundred one")
-    // );
-    // assert_eq!(
-    //     Ok(300_101),
-    //     p.parse_complete("three hundred thousand one hundred one")
-    // );
-    // assert_eq!(
-    //     Ok(300_101),
-    //     p.parse_complete("three hundred thousand one hundred and one")
-    // );
-    // assert_eq!(Ok(300_001), p.parse_complete("three hundred thousand one"));
-    // assert_eq!(Ok(300_000), p.parse_complete("three hundred thousand"));
+    assert_eq!(
+        Ok(3_101),
+        p.parse_complete("three thousand one hundred one")
+    );
+    assert_eq!(
+        Ok(300_101),
+        p.parse_complete("three hundred thousand one hundred one")
+    );
+    assert_eq!(
+        Ok(300_101),
+        p.parse_complete("three hundred thousand one hundred and one")
+    );
+    assert_eq!(Ok(300_001), p.parse_complete("three hundred thousand one"));
+    assert_eq!(Ok(300_000), p.parse_complete("three hundred thousand"));
 
     assert_eq!(Ok(21), p.parse_complete("twenty one"));
     assert_eq!(Ok((21, "")), p.parse("twenty one"));
     assert_eq!(Ok((20, "")), p.parse("twenty "));
 
     let e = expect_test::expect![[r#"
-        <0-999>
+        <0-999999>
 
-        <0-999>: <10-99> | <ones> <after-counting> | zero
+        <0-999999>: <1-999> <after-1-999> | zero
+        <1-999>: <10-99> | <counting digit> <after-counting>
         <10-99>: <teen> | <tens> <after tens>
         <teen>: ten | eleven | twelve | thirteen | fourteen | fifteen | sixteen
             | seventeen | eighteen | nineteen
         <tens>: twenty | thirty | fourty | fifty | sixty | seventy | eighty
             | ninety
-        <after tens>: <ones> | 
-        <ones>: one | two | three | four | five | six | seven | eight | nine
-        <after-counting>: hundred and <ones> | hundred <1-99> | hundred | 
-        <1-99>: <ones> | <10-99>
+        <after tens>: <counting digit> | 
+        <counting digit>: one | two | three | four | five | six | seven | eight
+            | nine
+        <after-counting>: hundred and <counting digit> | hundred <1-99>
+            | hundred | 
+        <1-99>: <counting digit> | <10-99>
+        <after-1-999>: thousand and <counting digit> | thousand <1-999>
+            | thousand | 
     "#]];
     e.assert_eq(&p.describe().to_string());
 }
