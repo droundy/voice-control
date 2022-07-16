@@ -1,6 +1,8 @@
 //! A parser for David Roundy
 
 use crate::desktop_control::Action;
+#[cfg(test)]
+use crate::parser::IsParser;
 
 use super::number::number;
 use super::{choose, spelling, IntoParser, Parser};
@@ -32,4 +34,18 @@ pub fn parser() -> Parser<Action> {
                 .map(|_| Action::new("Testing!".to_string(), || println!("I am running a test!"))),
         ],
     )
+}
+
+#[test]
+fn test_commands() {
+    println!("{}", parser().describe());
+
+    let roundy = parser();
+    let check = roundy.to_checker();
+
+    assert!(check("five left").is_ok());
+    println!("got {:?}", roundy.parse("five left"));
+    assert!(roundy.parse("five left").is_ok());
+
+    assert!(check("one up").is_ok());
 }

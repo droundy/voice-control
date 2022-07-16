@@ -147,10 +147,28 @@ fn test() {
     "#]];
     e.assert_eq(&control_keys().describe().to_string());
 
+    println!("look {:?}", control_keys().parse("left"));
+    assert!(control_keys().parse("left").is_ok());
+
+    assert_parse("left", modifiers().optional() + control_keys());
+    assert_parse("control left", modifiers().optional() + control_keys());
+
     let e = expect_test::expect![[r#"
         <modifier>+
 
         <modifier>: shift | alt | option | control | command | meta
     "#]];
     e.assert_eq(&modifiers().many1().describe().to_string());
+
+    let e = expect_test::expect![[r#"
+        <modifier>
+
+        <modifier>: shift | alt | option | control | command | meta
+    "#]];
+    e.assert_eq(&modifiers().describe().to_string());
+
+    assert_parse("alt", modifiers());
+    assert_parse("alt", modifiers().optional());
+    assert_parse("alt", modifiers().many0());
+    assert_parse("alt", modifiers().many1());
 }

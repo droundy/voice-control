@@ -451,6 +451,9 @@ impl<T: 'static> IsParser for Many1<T> {
     fn parse<'a>(&self, input: &'a str) -> Result<(Self::Output, &'a str), Error> {
         let (first, mut input) = self.0.parse(input)?;
         let mut output = vec![first];
+        if input == "" {
+            return Ok((output, input));
+        }
         loop {
             match self.0.parse(input) {
                 Ok((v, rest)) => {
@@ -473,6 +476,9 @@ impl<T: 'static> IsParser for Many1<T> {
     ) -> Result<(Self::Output, &'a str), Error> {
         let (first, mut input) = self.0.parse_with_packrat(input, packrat)?;
         let mut output = vec![first];
+        if input == "" {
+            return Ok((output, input));
+        }
         loop {
             match self.0.parse_with_packrat(input, packrat) {
                 Ok((v, rest)) => {
@@ -652,6 +658,22 @@ fn test_baby_actions() {
     assert_eq!(Ok(13), p.parse_complete("poop"));
     assert_eq!(Err(Error::Incomplete), p.parse("poo"));
     assert_eq!(Err(Error::Wrong), p.parse("pee"));
+}
+
+#[cfg(test)]
+pub fn assert_parse<P: IsParser>(text: &str, parser: P)
+where
+    P::Output: std::fmt::Debug,
+{
+    println!("==================\nParser: {}", parser.describe());
+    println!("Parsing {text:?} gives {:?}", parser.parse(text));
+    assert!(parser.parse(text).is_ok());
+}
+
+#[test]
+fn many_test() {
+    assert_parse("hello", "hello".many0());
+    assert_parse("hello", "hello".many1());
 }
 
 #[test]

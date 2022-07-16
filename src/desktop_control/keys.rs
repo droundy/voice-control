@@ -22,14 +22,15 @@ impl Action {
     /// The input `strokes` accepts a range of unicode characters
     /// for special keys.  FIXME document these!
     pub fn keystrokes(strokes: impl IntoIterator<Item = char>) -> Self {
+        let s: String = strokes.into_iter().collect();
         Action::internal_keystrokes(
-            str_to_keystrokes(strokes.into_iter())
-                .expect("Action::keystrokes expects valid characters"),
+            s.clone(),
+            str_to_keystrokes(s.chars()).expect("Action::keystrokes expects valid characters"),
         )
     }
 
-    fn internal_keystrokes(strokes: Vec<Keystrokes>) -> Self {
-        Action::new("test".to_string(), move || {
+    fn internal_keystrokes(name: String, strokes: Vec<Keystrokes>) -> Self {
+        Action::new(name, move || {
             let mut to_lift = Vec::new();
             for k in strokes.iter().copied() {
                 match k {

@@ -177,7 +177,7 @@ pub fn voice_control(commands: impl 'static + Fn() -> Parser<Action>) {
     get_audio_input_16kHz(move |data: &[i16]| {
         let frame = data.len() as f64 * (1.0 / REQUIRED_RATE.0 as f64);
         total_seconds += frame;
-        if total_seconds > last_printed + 1.0 {
+        if total_seconds > last_printed + 10.0 {
             println!("It has been {total_seconds:.1} seconds in frames of {frame} seconds");
             last_printed = total_seconds;
         }
@@ -191,7 +191,7 @@ pub fn voice_control(commands: impl 'static + Fn() -> Parser<Action>) {
             .any(|data| vad.is_voice_segment(data).expect("wrong size data sample"))
         {
             all_data.extend(&silence_check);
-            println!("Found audio {} samples", all_data.len());
+            // println!("Found audio {} samples", all_data.len());
             have_sound = true;
         } else {
             if have_sound {
@@ -367,4 +367,16 @@ fn recognize_testing() {
     println!("Result is {result:?}");
     assert!(result.is_some());
     assert_eq!(format!("{result:?}"), r#"Some("Testing!")"#.to_string());
+
+    let recognizer = load_voice_control(parser::roundy::parser);
+    let sound = load_data("test-audio/one-up.wav");
+    let e = expect_test::expect![[r#"Some("[\"↑\"]")"#]];
+    e.assert_eq(&format!("{:?}", recognizer(&sound)));
+
+    // The following audio isn't recognized for some reason.  :(
+
+    // let recognizer = load_voice_control(parser::roundy::parser);
+    // let sound = load_data("test-audio/five-left.wav");
+    // let e = expect_test::expect![[r#"Some("[\"↑\"]")"#]];
+    // e.assert_eq(&format!("{:?}", recognizer(&sound)));
 }
