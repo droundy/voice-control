@@ -231,9 +231,10 @@ pub fn load_voice_control(
         .expect("unable to read scorer");
     assert_eq!(model.get_sample_rate(), REQUIRED_RATE.0 as i32);
     let model_commands = commands();
+    let checker = model_commands.to_checker();
     model
         .enable_callback_scorer(move |s| {
-            if let Err(Error::Wrong) = model_commands.parse(s) {
+            if let Err(Error::Wrong) = checker(s) {
                 // println!("      bad input {:?}", s);
                 -10.0
             } else {
