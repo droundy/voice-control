@@ -385,11 +385,4 @@ fn recognize_testing() {
     let sound = load_data("test-audio/one-up.wav");
     let e = expect_test::expect![[r#"Some("[\"↑\"]")"#]];
     e.assert_eq(&format!("{:?}", recognizer(&sound)));
-
-    // The following audio isn't recognized for some reason.  :(
-
-    let recognizer = load_voice_control(parser::roundy::parser);
-    let sound = load_data("test-audio/five-left.wav");
-    let e = expect_test::expect![[r#"Some("[\"↑\"]")"#]];
-    e.assert_eq(&format!("{:?}", recognizer(&sound)));
 }
