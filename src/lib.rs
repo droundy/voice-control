@@ -10,7 +10,10 @@ use desktop_control::Action;
 use parser::{Error, IsParser, Parser};
 
 const VAD_SAMPLES: u32 = 16 * 30; // 30 ms at 16 kHz.  10 and 20 are also options.
-const REQUIRED_RATE: cpal::SampleRate = cpal::SampleRate(16000);
+const RATE_AS_USIZE: usize = 16_000;
+const REQUIRED_RATE: cpal::SampleRate = cpal::SampleRate(RATE_AS_USIZE as u32);
+// Time to wait between phrases.  Let's wait a quarter second.
+const SILENCE_BETWEEN_PHRASES: usize = RATE_AS_USIZE / 4;
 #[allow(non_snake_case)]
 fn get_audio_input_16kHz<F: FnMut(&[i16]) + Send + 'static>(mut callback: F) -> ! {
     const THREE_RATE: cpal::SampleRate = cpal::SampleRate(3 * REQUIRED_RATE.0);
@@ -182,7 +185,7 @@ pub fn voice_control(commands: impl 'static + Fn() -> Parser<Action>) {
             last_printed = total_seconds;
         }
         silence_check.extend(data);
-        if silence_check.len() < 8 * VAD_SAMPLES as usize {
+        if silence_check.len() < SILENCE_BETWEEN_PHRASES {
             return;
         }
         let mut vad = vad.lock().unwrap();
@@ -195,6 +198,8 @@ pub fn voice_control(commands: impl 'static + Fn() -> Parser<Action>) {
             have_sound = true;
         } else {
             if have_sound {
+                // Include the final silence, which might include the very end of a consonant.
+                all_data.extend(&silence_check);
                 // let fname = format!("audio/final-silence-{audio_sample:06}.wav");
                 // println!("Final silence {} samples as {fname}", silence_check.len());
                 // println!("final silence is {silence_check:?}");
@@ -253,9 +258,13 @@ pub fn load_voice_control(
     move |data: &[i16]| -> Option<Action> {
         let mut stream = new_stream();
         stream.feed_audio(data);
-        let x = stream.finish_stream_with_metadata(2).unwrap().to_owned();
+        const NUM_GUESSES: u32 = 16;
+        let x = stream
+            .finish_stream_with_metadata(NUM_GUESSES)
+            .unwrap()
+            .to_owned();
         let transcripts = x.transcripts();
-        // let scores: Vec<f64> = transcripts.iter().map(|c| c.confidence()).collect();
+        let scores: Vec<f64> = transcripts.iter().map(|c| c.confidence()).collect();
         let phrases: Vec<String> = transcripts
             .iter()
             .map(|c| {
@@ -266,18 +275,22 @@ pub fn load_voice_control(
                 words
             })
             .collect();
-        // if phrases.len() == 1 {
-        //     if phrases[0] == "" {
-        //         println!("You didn't say anything")
-        //     }
-        // } else {
-        //     println!(
-        //         "{:?} exceeds {:?} by {:?}",
-        //         phrases[0],
-        //         phrases[1],
-        //         scores[0] - scores[1]
-        //     );
-        // }
+        if phrases.len() == 1 {
+            if phrases[0] == "" {
+                println!("You didn't say anything")
+            }
+        } else {
+            println!(
+                "{:?} exceeds {:?} by {:?}",
+                phrases[0],
+                phrases[1],
+                scores[0] - scores[1]
+            );
+        }
+        for (score, phrase) in scores.iter().copied().zip(phrases.iter()) {
+            println!("    {score:.2}: {phrase:?}");
+        }
+
         if phrases[0] != "" {
             match execute_commands.parse(&phrases[0]) {
                 Err(Error::Incomplete) => {
@@ -375,8 +388,8 @@ fn recognize_testing() {
 
     // The following audio isn't recognized for some reason.  :(
 
-    // let recognizer = load_voice_control(parser::roundy::parser);
-    // let sound = load_data("test-audio/five-left.wav");
-    // let e = expect_test::expect![[r#"Some("[\"↑\"]")"#]];
-    // e.assert_eq(&format!("{:?}", recognizer(&sound)));
+    let recognizer = load_voice_control(parser::roundy::parser);
+    let sound = load_data("test-audio/five-left.wav");
+    let e = expect_test::expect![[r#"Some("[\"↑\"]")"#]];
+    e.assert_eq(&format!("{:?}", recognizer(&sound)));
 }
