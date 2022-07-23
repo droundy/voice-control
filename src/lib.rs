@@ -237,6 +237,7 @@ pub fn load_voice_control(
     assert_eq!(model.get_sample_rate(), REQUIRED_RATE.0 as i32);
     let model_commands = commands();
     let checker = model_commands.to_checker();
+    let checker_two = model_commands.to_checker();
     model
         .enable_callback_scorer(move |s| {
             if let Err(Error::Wrong) = checker(s) {
@@ -272,6 +273,10 @@ pub fn load_voice_control(
                 for w in c.tokens().iter().map(|t| &t.text) {
                     words.push_str(w.as_ref());
                 }
+                // Remove trailing space.
+                while words.len() > 0 && words.as_bytes()[words.len() - 1] == b' ' {
+                    words.pop();
+                }
                 words
             })
             .collect();
@@ -288,7 +293,14 @@ pub fn load_voice_control(
             );
         }
         for (score, phrase) in scores.iter().copied().zip(phrases.iter()) {
-            println!("    {score:.2}: {phrase:?}");
+            println!(
+                "   {} {score:.2}: {phrase:?}",
+                if checker_two(&*phrase).is_ok() {
+                    "OK"
+                } else {
+                    "  "
+                }
+            );
         }
 
         if phrases[0] != "" {
@@ -345,6 +357,53 @@ fn save_load() {
     save_data(tf.to_str().unwrap(), &data);
     let new_data = load_data(tf.to_str().unwrap());
     assert_eq!(data, new_data);
+}
+
+#[test]
+fn recognize_testing_testing_testing() {
+    use parser::IntoParser;
+
+    let parser = || {
+        parser::choose(
+            "command",
+            vec![
+                parser::number::number().map(move |n| {
+                    Action::new("{n} blind mice".to_string(), move || println!("I see {n}"))
+                }),
+                "testing"
+                    .many1()
+                    .map(|t| Action::new(t.join(" "), || println!("I am running a test!"))),
+            ],
+        )
+    };
+    let recognizer = load_voice_control(parser);
+
+    let sound = load_data("test-audio/testing.wav");
+    let result = recognizer(&sound);
+    println!("Result is {result:?}");
+    assert!(result.is_some());
+    let result = result.unwrap();
+    assert_eq!(format!("{result:?}"), r#""testing""#.to_string());
+
+    let sound = load_data("test-audio/testing-testing-testing-unrecognized.wav");
+    let result = recognizer(&sound);
+    println!("Result is {result:?}");
+    assert!(result.is_some());
+    let result = result.unwrap();
+    assert_eq!(
+        format!("{result:?}"),
+        r#""testing testing testing""#.to_string()
+    );
+
+    let sound = load_data("test-audio/testing-testing-testing.wav");
+    let result = recognizer(&sound);
+    println!("Result is {result:?}");
+    assert!(result.is_some());
+    let result = result.unwrap();
+    assert_eq!(
+        format!("{result:?}"),
+        r#""testing testing testing""#.to_string()
+    );
 }
 
 #[test]
