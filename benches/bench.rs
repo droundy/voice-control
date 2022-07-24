@@ -46,7 +46,7 @@ fn parse_mice() -> Parser<Action> {
 fn bench_recognize(audio: &str, name: &str, parser: impl Fn() -> Parser<Action>) {
     let data = voice_control::load_data(&format!("test-audio/{audio}.wav"));
 
-    let recognizer = load_voice_control(parser);
+    let mut recognizer = load_voice_control(parser);
     println!(
         "   *** {name} *** {}",
         scaling::bench(|| { recognizer(&data) })
